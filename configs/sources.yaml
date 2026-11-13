@@ -1,0 +1,61 @@
+schema_version: '1'
+sources:
+  goedel_pset_v1:
+    status: active
+    route: hf
+    repo: Goedel-LM/Goedel-Pset-v1
+    license: MIT
+    url: https://huggingface.co/datasets/Goedel-LM/Goedel-Pset-v1
+  lean_workbook:
+    status: active
+    route: hf
+    repo: internlm/Lean-Workbook
+    license: Apache-2.0
+    url: https://huggingface.co/datasets/internlm/Lean-Workbook
+    environment_hints: {lean: 4.8.0-rc1, mathlib: 4.8.0-rc1}
+  numina_math_lean:
+    status: active
+    route: hf
+    repo: AI-MO/NuminaMath-LEAN
+    license: Apache-2.0
+    url: https://huggingface.co/datasets/AI-MO/NuminaMath-LEAN
+    environment_hints: {mathlib: 4.15.0}
+  putnam_bench:
+    status: active
+    route: git
+    url: https://github.com/trishullab/PutnamBench
+    project_subdir: lean4
+    license: Apache-2.0
+    include: [lean4/**/*.lean, lean4/lean-toolchain, lean4/lakefile.lean, lean4/lakefile.toml, lean4/lake-manifest.json]
+  mathlib4:
+    status: active
+    route: git
+    url: https://github.com/leanprover-community/mathlib4
+    license: Apache-2.0
+    include: [Mathlib/**/*.lean]
+  tau_ceti:
+    status: active
+    route: git
+    url: https://github.com/TauCetiProject/TauCeti
+    license: Apache-2.0
+    authorship: AI-authored; original file notices retained
+    include: ['**/*.lean']
+  ace_reason_math:
+    status: deferred
+    route: hf
+    repo: nvidia/AceReason-Math
+    url: https://huggingface.co/datasets/nvidia/AceReason-Math
+    license: CC-BY-4.0
+    reason: Informal data without supplied Lean formalizations
+  goedel_prover_v2_sft:
+    status: active
+    route: hf
+    repo: Goedel-LM/SFT_dataset_v2
+    license: Apache-2.0
+    url: https://huggingface.co/datasets/Goedel-LM/SFT_dataset_v2
+  nemotron_math_proofs_v1:
+    status: active
+    route: hf
+    repo: nvidia/Nemotron-Math-Proofs-v1
+    license: CC-BY-SA-4.0
+    url: https://huggingface.co/datasets/nvidia/Nemotron-Math-Proofs-v1

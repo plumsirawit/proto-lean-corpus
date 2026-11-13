@@ -1,0 +1,3 @@
+{"uuid":"fixture-1","problem":"Reflexivity of natural-number equality","formal_statement":"theorem fixture_refl (n : Nat) : n = n := by","formal_ground_truth":"by rfl","formal_proof":"by exact False.elim (by trivial)","ground_truth_type":"complete"}
+{"uuid":"fixture-2","problem":"Truth","formal_statement":"theorem fixture_true : True := by sorry","formal_ground_truth":"by trivial","formal_proof":"by sorry","ground_truth_type":"complete"}
+{"uuid":"fixture-3","problem":"Problem only","formal_statement":"theorem fixture_only : 1 = 1 := by sorry","formal_ground_truth":"","formal_proof":null,"ground_truth_type":"statement_only"}

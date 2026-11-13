@@ -1,0 +1,23 @@
+[build-system]
+requires = ["hatchling==1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "proto-lean-corpus"
+version = "0.1.0"
+description = "Reproducible proof-discovery corpus with conservative provenance and verification"
+requires-python = ">=3.10"
+dependencies = ["pyarrow==20.0.0", "PyYAML==6.0.2", "huggingface-hub==0.36.0"]
+
+[dependency-groups]
+dev = ["pytest==8.4.2", "ruff==0.14.5"]
+
+[project.scripts]
+lean-corpus = "lean_corpus.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lean_corpus"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["lean: real Lean kernel integration"]

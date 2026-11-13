@@ -1,0 +1,12 @@
+proto-lean-corpus-implementation-plan.md
+.venv/
+.work/
+work/
+dist/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+*.olean
+*.ilean
+.lake/

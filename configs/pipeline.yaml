@@ -1,0 +1,8 @@
+schema_version: '1'
+parser_toolchain: leanprover/lean4:v4.19.0
+verification:
+  timeout_seconds: 60
+  memory_mb: 4096
+  file_size_mb: 16
+  allowed_axioms: [propext, Classical.choice, Quot.sound]
+  isolation: user-mount-network-namespace
