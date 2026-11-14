@@ -13,6 +13,17 @@ partial def theoremNodes (s : Syntax) : Array Syntax :=
   else if s.getArgs.size == 4 && s[0].isAtom && s[0].getAtomVal == "lemma" then #[s]
   else s.getArgs.foldl (fun a x => a ++ theoremNodes x) #[]
 
+def proofBodies (cmd : Syntax) : Array Syntax :=
+  (theoremNodes cmd).foldl (fun acc thm =>
+    let vals := nodes thm ``Parser.Command.declValSimple
+    if vals.size == 1 then acc.push vals[0]![1] else acc) #[]
+
+partial def maskBodies (s : Syntax) (bodies : Array Syntax) (placeholder : Syntax) : Syntax :=
+  if bodies.any (fun b => s.getKind == b.getKind && s.getPos? == b.getPos? && s.getTailPos? == b.getTailPos?) then placeholder
+  else match s with
+    | .node info kind args => .node info kind (args.map (maskBodies · bodies placeholder))
+    | other => other
+
 def span (s : Syntax) : Json := Json.arr #[toJson (s.getPos?.getD 0).byteIdx, toJson (s.getTailPos?.getD 0).byteIdx]
 
 -- Compare parsed structure, preserving names, command order and layout-derived
@@ -28,14 +39,15 @@ partial def syntaxShape (s : Syntax) (bodies : Array Syntax) : Json :=
 
 -- Use the recorded project's imports and command elaboration to extend its parser.
 -- This supports local notation/macros; commands with errors are never hidden.
-def main (args : List String) : IO UInt32 := do
+unsafe def main (args : List String) : IO UInt32 := do
   let path := args[0]!
   let mode := args[1]!
   initSearchPath (← findSysroot)
+  enableInitializersExecution
   let input ← IO.FS.readFile path
   let ictx := Parser.mkInputContext input path
   let (header, ps, msgs) ← Parser.parseHeader ictx
-  let (env0, importMsgs) ← processHeader header {} msgs ictx
+  let (env0, importMsgs) ← processHeader header {} msgs ictx (leakEnv := true)
   let env ← if importMsgs.hasErrors && mode == "parse" then importModules #[{module := `Lean}] {} else pure env0
   if importMsgs.hasErrors && mode != "parse" then
     IO.println (Json.compress (Json.mkObj [("error", toJson "imports unavailable")]))
@@ -54,7 +66,14 @@ def main (args : List String) : IO UInt32 := do
         Frontend.setParserState { ps0 with recovering := true }
         return rows
       Frontend.setParserState ps0
-      Frontend.elabCommandAtFrontend cmd0
+      let mut commandForElab := cmd0
+      if mode == "parse" && !(proofBodies cmd0).isEmpty then
+        let .ok placeholder := Parser.runParserCategory before.env `term "by sorry"
+          | throw (IO.Error.userError "cannot parse internal target placeholder")
+        -- Extraction must retain supplied attempts even when their tactics fail
+        -- or exhaust resources. Only verify mode executes original proof bodies.
+        commandForElab := maskBodies cmd0 (proofBodies cmd0) placeholder
+      Frontend.elabCommandAtFrontend commandForElab
       modify fun s => {s with commands := s.commands.push cmd0}
       done_ := Parser.isTerminalCommand cmd0
       let st ← get
@@ -79,10 +98,7 @@ def main (args : List String) : IO UInt32 := do
     ("admissions", toJson (st.commands.foldl (fun n c => n + admissions c) 0)),
     ("imports_resolved", toJson (!importMsgs.hasErrors)), ("parse_failed", toJson st.parserState.recovering)]
   if mode == "parse" then
-    let bodies := st.commands.foldl (fun acc cmd =>
-      acc ++ (theoremNodes cmd).foldl (fun acc thm =>
-        let vals := nodes thm ``Parser.Command.declValSimple
-        if vals.size == 1 then acc.push vals[0]![1] else acc) #[]) #[]
+    let bodies := st.commands.foldl (fun acc cmd => acc ++ proofBodies cmd) #[]
     result := result ++ [("task_skeleton", Json.arr #[syntaxShape header #[], Json.arr (st.commands.map (syntaxShape · bodies))])]
   if mode == "verify" then
     let name := args[2]!.toName

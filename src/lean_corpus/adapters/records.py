@@ -64,6 +64,10 @@ def statement(value, env, runtime):
         )
     parsed = inspect(source, env, runtime)
     if len(parsed["targets"]) != 1:
+        if len(parsed["targets"]) > 1 and parsed["admissions"] > 1:
+            raise Unsupported(
+                "multiple target placeholders / admitted supporting lemmas; supporting context must be completed explicitly"
+            )
         raise Unsupported("expected exactly one theorem target")
     target = parsed["targets"][0]
     if "unsupported" in target:
@@ -77,8 +81,12 @@ def statement(value, env, runtime):
             }
         )
     task = replace_span(source, target["body"], "by sorry")
-    target_info(task, env, runtime)
-    return task, target["name"], original, transformations
+    skeleton = None
+    if original == "by sorry" and parsed["admissions"] == 1:
+        skeleton = parsed.get("task_skeleton")
+    else:
+        target_info(task, env, runtime)
+    return task, target["name"], original, transformations, skeleton
 
 
 def code_block(response):
@@ -90,7 +98,7 @@ def code_block(response):
     return text(blocks[0]).strip()
 
 
-def proof_term(value, task, env, runtime, response=False):
+def proof_term(value, task, env, runtime, response=False, task_skeleton=None):
     value = text(value).strip()
     if response:
         value = code_block(value)
@@ -109,9 +117,12 @@ def proof_term(value, task, env, runtime, response=False):
     body = slice_span(value, target["body"])
     candidate = replace_span(value, target["body"], "by sorry")
     if candidate.strip() != task.strip():
-        fixed = inspect(task, env, runtime)
-        if parsed.get("task_skeleton") is None or parsed["task_skeleton"] != fixed.get(
-            "task_skeleton"
+        fixed_skeleton = task_skeleton
+        if fixed_skeleton is None:
+            fixed_skeleton = inspect(task, env, runtime).get("task_skeleton")
+        if (
+            parsed.get("task_skeleton") is None
+            or parsed["task_skeleton"] != fixed_skeleton
         ):
             raise Unsupported(
                 "full-theorem response changed target statement or context"
@@ -120,7 +131,7 @@ def proof_term(value, task, env, runtime, response=False):
 
 
 def base(row, env, runtime, formal=None, informal=None):
-    task, name, original, transforms = statement(
+    task, name, original, transforms, skeleton = statement(
         formal or row.get("formal_statement"), env, runtime
     )
     return {
@@ -132,6 +143,7 @@ def base(row, env, runtime, formal=None, informal=None):
         "attempts": [],
         "reports": [],
         "transformations": transforms,
+        "_task_skeleton": skeleton,
     }, original
 
 
@@ -148,7 +160,9 @@ def add(result, value, field, env, runtime, response=False, explanation=None):
     if not nonempty(value):
         return
     try:
-        term = proof_term(value, result["task"], env, runtime, response)
+        term = proof_term(
+            value, result["task"], env, runtime, response, result.get("_task_skeleton")
+        )
         result["attempts"].append(
             {"proof": term, "field": field, "informal": explanation}
         )

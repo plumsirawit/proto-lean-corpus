@@ -56,6 +56,41 @@ def test_full_response_context_shape(real_lean):
     for prefix in ("import Lean\n", "set_option autoImplicit false\n"):
         with pytest.raises(Unsupported, match="changed"):
             proof_term(prefix + response, TASK, real_lean, {})
+    invalid = TASK.replace("by sorry", "by exact Nat.zero")
+    assert proof_term(invalid, TASK, real_lean, {}) == "by exact Nat.zero"
+
+
+def test_imported_tactic_initialization(real_lean, tmp_path):
+    import subprocess
+    from lean_corpus.lean import inspect
+
+    module = tmp_path / "InitProbe.lean"
+    module.write_text(
+        "import Lean\nopen Lean Elab Tactic\n"
+        "initialize ready : IO.Ref Bool ← IO.mkRef true\n"
+        'elab "init_probe" : tactic => do\n'
+        '  unless (← ready.get) do throwError "initializer did not run"\n'
+        "  evalTactic (← `(tactic| trivial))\n"
+    )
+    tools = (
+        Path.home()
+        / ".elan/toolchains"
+        / real_lean["toolchain"].replace("/", "--").replace(":", "---")
+    )
+    subprocess.run(
+        [str(tools / "bin/lean"), "-o", "InitProbe.olean", module.name],
+        cwd=tmp_path,
+        check=True,
+        timeout=60,
+    )
+    result = inspect(
+        "import InitProbe\n" + TASK.replace("by sorry", "by init_probe"),
+        real_lean,
+        {"project_dir": str(tmp_path), "lean_path": ["."]},
+        mode="verify",
+        target="t",
+    )
+    assert not result["errors"] and result["is_theorem"]
 
 
 def test_source_forms(real_lean):
