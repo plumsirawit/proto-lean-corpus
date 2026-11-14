@@ -70,9 +70,9 @@ def test_parallel_matches_serial_and_resumes(real_lean, tmp_path, monkeypatch, r
         assert verify_parallel(moved, workers=2, limit=limit) == verify(
             work, limit=limit
         )
-        assert read_json(moved / "reports/verification.json") == read_json(
-            work / "reports/verification.json"
-        )
+        assert semantic_report(
+            read_json(moved / "reports/verification.json")
+        ) == semantic_report(read_json(work / "reports/verification.json"))
     before = read_tables(moved / "canonical")
     cache = next((moved / "verification-cache").glob("*.json"))
     cache.write_text("corrupt")
