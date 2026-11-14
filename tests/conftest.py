@@ -1,3 +1,4 @@
+import os
 import pytest
 from lean_corpus.lean import inspect, LeanFailure
 
@@ -24,6 +25,8 @@ def real_lean(core_env):
             target="probe",
         )
     except LeanFailure as e:
+        if os.environ.get("LEAN_CORPUS_REQUIRE_LEAN") == "1":
+            pytest.fail(f"required real Lean environment unavailable: {e}")
         pytest.skip(f"real Lean environment unavailable: {e}")
     assert not result["errors"]
     return core_env

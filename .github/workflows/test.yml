@@ -2,8 +2,11 @@ name: fixtures
 on: [push, pull_request]
 jobs:
   fixtures:
-    runs-on: ubuntu-latest
+    # This runner supports the unprivileged namespaces used by Lean isolation.
+    runs-on: ubuntu-22.04
     timeout-minutes: 20
+    env:
+      LEAN_CORPUS_REQUIRE_LEAN: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -14,11 +17,11 @@ jobs:
       - run: uv run --locked ruff check src tests
       - run: uv run --locked ruff format --check src tests
       - run: uv run --locked pytest -m 'not lean'
-      # Real kernel checks are explicit; unavailable namespace support is reported
-      # as a skip by the integration fixture, never as successful verification.
       - name: Install pinned integration toolchain
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/leanprover/elan/v4.1.2/elan-init.sh -o /tmp/elan-init.sh
           sh /tmp/elan-init.sh -y --default-toolchain leanprover/lean4:v4.19.0
+          "$HOME/.elan/bin/elan" toolchain install leanprover/lean4:v4.19.0
+          "$HOME/.elan/bin/lean" --version
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
       - run: uv run --locked pytest -m lean -rs
