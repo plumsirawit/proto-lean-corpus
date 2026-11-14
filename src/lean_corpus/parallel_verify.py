@@ -5,7 +5,6 @@ import fcntl
 import os
 from pathlib import Path
 import shutil
-import signal
 import subprocess
 import sys
 import time
@@ -15,6 +14,7 @@ from .deduplicate import require_current
 from .lean import POLICY
 from .runtime import RuntimeGuard
 from .schema import read_tables, write_tables
+from .shutdown import install_shutdown_handler
 from .verify import verify
 from .worker import close_all
 
@@ -176,10 +176,7 @@ def main():
     parser.add_argument("--timeout", type=int, required=True)
     args = parser.parse_args()
 
-    def interrupted(signum, frame):
-        raise InterruptedError(f"verification interrupted by signal {signum}")
-
-    signal.signal(signal.SIGTERM, interrupted)
+    install_shutdown_handler()
     try:
         verify(args.shard, timeout=args.timeout)
     finally:

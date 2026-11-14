@@ -4,7 +4,6 @@ import argparse
 from datetime import datetime, timezone
 from pathlib import Path
 import re
-import signal
 import subprocess
 import traceback
 from lean_corpus.acquire import selected_snapshots
@@ -15,6 +14,7 @@ from lean_corpus.extraction_cache import implementation_digest
 from lean_corpus.lean import POLICY, inspect
 from lean_corpus.normalize import normalize
 from lean_corpus.runtime import RuntimeGuard
+from lean_corpus.shutdown import install_shutdown_handler
 from lean_corpus.verify import verify
 from lean_corpus.parallel_verify import verify_parallel
 from lean_corpus.worker import STATS, close_all
@@ -90,12 +90,7 @@ def main():
         write_json(state_file, state)
         print(phase, result if result is not None else "", flush=True)
 
-    def interrupted(signum, frame):
-        raise InterruptedError(
-            f"processing interrupted by signal {signum}; resume from completed caches"
-        )
-
-    signal.signal(signal.SIGTERM, interrupted)
+    install_shutdown_handler()
     try:
         record("preflight")
         snapshots = list(selected_snapshots(args.work_dir, args.source))
