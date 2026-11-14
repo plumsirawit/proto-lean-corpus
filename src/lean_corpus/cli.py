@@ -53,6 +53,7 @@ def main(argv=None):
             p.add_argument("--limit", type=int)
         if name == "verify":
             p.add_argument("--timeout", type=int, default=60)
+            p.add_argument("--workers", type=int, default=1)
         if name == "export":
             p.add_argument("--output-dir", type=Path, required=True)
             p.add_argument("--pipeline", default="configs/pipeline.yaml")
@@ -99,7 +100,14 @@ def main(argv=None):
         elif args.command == "deduplicate":
             result = deduplicate(args.work_dir)
         elif args.command == "verify":
-            result = verify(args.work_dir, args.limit, args.timeout)
+            if args.workers == 1:
+                result = verify(args.work_dir, args.limit, args.timeout)
+            else:
+                from .parallel_verify import verify_parallel
+
+                result = verify_parallel(
+                    args.work_dir, args.workers, args.limit, args.timeout
+                )
         elif args.command == "export":
             result = export(args.work_dir, args.output_dir, args.sources, args.pipeline)
         elif args.command == "resolve-environment":

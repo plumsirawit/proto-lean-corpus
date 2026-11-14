@@ -71,6 +71,11 @@ finish() {
 trap finish EXIT
 trap 'exit 143' TERM INT USR1
 extra=()
+verification_workers=${LC_VERIFY_WORKERS:-1}
+[[ "$verification_workers" =~ ^[1-9][0-9]*$ ]]
+[[ "$verification_workers" -le "${SLURM_CPUS_PER_TASK:-1}" ]]
+extra+=(--workers "$verification_workers")
+if [[ "${LC_RESUME_VERIFICATION:-0}" == 1 ]]; then extra+=(--resume-verification); fi
 if [[ -n "${LC_LIMIT:-}" ]]; then extra+=(--limit "$LC_LIMIT"); fi
 if [[ -n "${LC_SELECTION_FILE:-}" ]]; then
   [[ -z "${LC_LIMIT:-}" ]]
@@ -78,7 +83,8 @@ if [[ -n "${LC_SELECTION_FILE:-}" ]]; then
   [[ "$selection" == "$workspace/"* && -f "$selection" ]]
   extra+=(--selection "$selection")
 fi
-"$python_bin" scripts/run_local_corpus.py --work-dir "$workspace/corpus" \
+srun --cpu-bind=cores --ntasks=1 --cpus-per-task="${SLURM_CPUS_PER_TASK:-1}" \
+  "$python_bin" scripts/run_local_corpus.py --work-dir "$workspace/corpus" \
   --output-dir "$workspace/full-export-$SLURM_JOB_ID" --source numina_math_lean \
   --dataset-revision "$LC_DATASET_REVISION" --expected-input-rows "$LC_EXPECTED_ROWS" \
   --timeout "${LC_TIMEOUT:-120}" "${extra[@]}" &

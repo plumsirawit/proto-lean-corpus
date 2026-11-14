@@ -83,3 +83,26 @@ The export's `reports/effective-execution.json` records the actual inspection
 limits, worker backend/lifetime, project-relative module paths and checking policy.
 Use it in preference to example defaults in `configs/pipeline.yaml`. Machine-local
 project paths stay out of the report. Original Lean task options remain unchanged.
+
+Parallel verification is opt-in: `lean-corpus verify --work-dir WORK --workers 8`.
+Each process runs the same serial checker in its own workspace and Lean session;
+a problem and all its attempts belong to exactly one shard. Completed statement
+and proof caches keep their existing identities and remain in the ordinary corpus
+cache directories. Only the parent merges results, in original table order, after
+all shards succeed and the input/runtime guards pass. An interrupted run resumes
+from these caches; incomplete shard tables are never exported as final results.
+Use one controller per corpus. Resource exhaustion can still produce inconclusive
+results and is retried on resume.
+
+For `euler_full.sbatch`, request the matching allocation (for example,
+`--cpus-per-task=8 --mem-per-cpu=12G`) and set `LC_VERIFY_WORKERS=8`.
+The runner uses a Slurm step bound to its allocated cores and rejects workers above
+`SLURM_CPUS_PER_TASK`. Check current account/QoS limits and other jobs first;
+Mathlib checking also needs substantial memory per process. The allocation, not
+just the worker count, must fit the user's aggregate CPU and memory limits.
+`LC_RESUME_VERIFICATION=1` explicitly reuses a checkpoint's completed full
+normalization/deduplication without rerunning extraction under a new orchestration
+version. It requires matching source/revision/row-count metadata and current
+normalized/canonical stage state, and rejects changed pilot selections. Original
+normalization provenance is retained in the resumed run state. Both modes keep
+inputs, caches, checkpoints and exports local and perform no dataset publication.
