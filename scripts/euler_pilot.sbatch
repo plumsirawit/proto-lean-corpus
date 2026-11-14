@@ -32,6 +32,11 @@ workspace="$TMPDIR/$LC_SOURCE"
 [[ -d "$workspace/corpus" ]]
 export ELAN_HOME="$TMPDIR/elan" LC_LOCAL_PROJECT="$TMPDIR/project"
 export LC_LOCAL_WORKSPACE="$workspace"
+checking_chain=$(cat "$TMPDIR/project/lean-toolchain")
+checking_directory=${checking_chain//\//--}
+checking_directory=${checking_directory//:/---}
+export PATH="$ELAN_HOME/toolchains/$checking_directory/bin:$PATH"
+export LEAN_NUM_THREADS="${SLURM_CPUS_PER_TASK:-2}"
 runner_pid=""
 finish() {
   status=$?
@@ -72,6 +77,11 @@ PY
 }
 trap finish EXIT
 trap 'exit 143' TERM INT USR1
+# Historical Mathlib caches can omit the top-level import module. Complete it
+# offline on the allocated node, using only the already pinned dependencies.
+if [[ -f "$TMPDIR/project/Mathlib.lean" && ! -f "$TMPDIR/project/.lake/build/lib/Mathlib.olean" && ! -f "$TMPDIR/project/.lake/build/lib/lean/Mathlib.olean" ]]; then
+  (cd "$TMPDIR/project"; lake build Mathlib)
+fi
 "$python_bin" - <<'PY'
 from pathlib import Path
 import os
