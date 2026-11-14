@@ -33,6 +33,7 @@ STATS = {
     "header_restarts": 0,
     "fallbacks": 0,
     "peak_rss_kib": 0,
+    "peak_vm_size_kib": 0,
 }
 
 
@@ -219,6 +220,9 @@ class Worker:
                     "inspection_protocol_failure", "unexpected worker event"
                 )
             STATS["peak_rss_kib"] = max(STATS["peak_rss_kib"], event.get("rss_kib", 0))
+            STATS["peak_vm_size_kib"] = max(
+                STATS["peak_vm_size_kib"], event.get("vm_size_kib", 0)
+            )
             self.count += 1
             STATS["requests"] += 1
             return "result", decode_result(event["result"], mode, "".join(logs))

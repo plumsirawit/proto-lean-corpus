@@ -72,3 +72,23 @@ Mathlib checkout for every proof. A synthetic mutation test verifies both bounde
 validation calls and rejection of changed files/mappings/manifests. All 11 tests
 without Lean passed. The real five-stage synthetic integration test passed in
 29.76 seconds in Slurm job 20851223; namespace isolation also passed in job 20851051.
+
+Further local pilots used deterministic category-balanced original-row selections
+from the same pinned Numina snapshot. They test format coverage, not prevalence:
+the 32-row pilot retained 32 problems / 40 attempts (21 valid, 16 admitted,
+2 rejected by the axiom policy for Lean.ofReduceBool, 1 resource exhaustion).
+The 100-row pilot retained 93 problems / 117 attempts (66 valid, 50 invalid,
+1 resource exhaustion). Every retained statement elaborated, and repeated
+normalization matched byte-for-byte. These observations preceded a further fix
+for module-documentation-only response differences. The resource-limited attempt
+reproduced the same classification in a fresh isolated process and a fresh worker;
+it hit Lean's 200,000-heartbeat budget. Native reduction's extra axiom remains
+excluded by the existing three-axiom policy; those labels do not assert false
+mathematics.
+
+The module-documentation and masked-proof fallback fixes passed seven focused
+real Lean tests in Slurm job 20853805 (120.79 seconds). A subsequent real end-to-end
+check passed in job 20854507 (34.04 seconds), including resuming completed statement
+and proof checks without kernel re-execution and refusing corrupted cache evidence.
+All 12 tests without Lean passed after the integrity-cache addition. Actual theorem
+text and proof/data artifacts are confined to ignored local directories and scratch.

@@ -84,8 +84,6 @@ unsafe def inspectInput (input path mode target : String) (cache : ImportCache) 
         Frontend.setMessages (before.messages ++ parseMsgs)
         Frontend.setParserState { ps0 with recovering := true }
         return rows
-      if worker && requiresProcess cmd0 then
-        throw (IO.Error.userError "CORPUS_FALLBACK:metaprogramming_or_explicit_initialization")
       Frontend.setParserState ps0
       let mut commandForElab := cmd0
       if mode == "parse" && !(proofBodies cmd0).isEmpty then
@@ -94,6 +92,8 @@ unsafe def inspectInput (input path mode target : String) (cache : ImportCache) 
         -- Extraction must retain supplied attempts even when their tactics fail
         -- or exhaust resources. Only verify mode executes original proof bodies.
         commandForElab := maskBodies cmd0 (proofBodies cmd0) placeholder
+      if worker && requiresProcess commandForElab then
+        throw (IO.Error.userError "CORPUS_FALLBACK:metaprogramming_or_explicit_initialization")
       Frontend.elabCommandAtFrontend commandForElab
       modify fun s => {s with commands := s.commands.push cmd0}
       done_ := Parser.isTerminalCommand cmd0
@@ -147,12 +147,12 @@ def emitWorker (value : Json) : IO Unit := do
   stdout.putStrLn ("CORPUS_WORKER:" ++ value.compress)
   stdout.flush
 
-def residentKiB : IO Nat := do
+def memoryKiB (field : String) : IO Nat := do
   try
     let status ← IO.FS.readFile "/proc/self/status"
     for line in status.splitOn "\n" do
-      if line.startsWith "VmRSS:" then
-        return ((line.drop 6).trim.splitOn " ").head!.toNat?.getD 0
+      if line.startsWith (field ++ ":") then
+        return ((line.drop (field.length + 1)).trim.splitOn " ").head!.toNat?.getD 0
     return 0
   catch _ => return 0
 
@@ -173,7 +173,7 @@ unsafe def main (args : List String) : IO UInt32 := do
       emitWorker (Json.mkObj [("event", toJson "started"), ("id", toJson requestId)])
       try
         let result ← inspectInput input "/tmp/Task.lean" mode target cache true
-        emitWorker (Json.mkObj [("event", toJson "result"), ("id", toJson requestId), ("result", result), ("rss_kib", toJson (← residentKiB))])
+        emitWorker (Json.mkObj [("event", toJson "result"), ("id", toJson requestId), ("result", result), ("rss_kib", toJson (← memoryKiB "VmRSS")), ("vm_size_kib", toJson (← memoryKiB "VmSize"))])
       catch error =>
         let message := error.toString
         let event := if message.startsWith "CORPUS_RESTART:" then "restart" else if message.startsWith "CORPUS_FALLBACK:" then "fallback" else "error"

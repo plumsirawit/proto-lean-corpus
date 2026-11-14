@@ -135,3 +135,13 @@ quotas before expanding pilots; JSON caches and exported logs also consume files
 Scratch is temporary and needs a separate recovery/retention plan. For Euler, see
 [the storage guide](https://docs.hpc.ethz.ch/hardware/storage/) and
 [Slurm documentation](https://docs.hpc.ethz.ch/batchsystem/slurm/).
+
+Completed statement elaborations and proof checks have separate integrity-checked
+caches, keyed by the fixed task, environment, policy, backend, and checking code.
+Operational failures are retried. Resumed runs can reuse completed statements as
+well as proof verdicts; cache corruption stops verification and prevents terminal
+statuses from being trusted at export. Parsed declaration and module documentation
+may differ in a full-theorem response, while the original task text and its ID stay
+unchanged. Added imports, namespace openings, or logical context still reject the
+response. Proof bodies remain masked only during parsing: metaprogramming in those
+masked bodies needs no process fallback; actual verification keeps that fallback.

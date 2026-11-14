@@ -1,6 +1,7 @@
 from pathlib import Path
 from . import __version__
-from .common import digest, file_hash, read_json, write_json
+from .common import digest, file_hash, write_json
+from .check_cache import load_check, store_check
 from .deduplicate import require_current
 from .lean import (
     POLICY,
@@ -28,6 +29,7 @@ def cache_key(problem, proof, environment, policy=POLICY, backend="process"):
             "backend": backend,
             "worker": file_hash(Path(__file__).with_name("worker.py")),
             "runtime_guard": file_hash(Path(__file__).with_name("runtime.py")),
+            "check_cache": file_hash(Path(__file__).with_name("check_cache.py")),
             "sources": problem.get("source_refs", []),
             "attempt_sources": proof.get("source_refs", []) if proof else [],
             "implementation": __version__,
@@ -143,6 +145,20 @@ def verify(work, limit=None, timeout=60):
     baselines, reports = {}, []
     guard = RuntimeGuard(work)
     created_caches = []
+
+    def baseline_for(problem, environment, runtime):
+        key = cache_key(
+            problem, None, environment, backend=runtime.get("runner", "process")
+        )
+        cache = work / "statement-cache" / f"{key}.json"
+        if cache.exists():
+            return load_check(cache, key, {"elaborated", "invalid"})
+        result = check_problem(problem, environment, runtime, timeout)
+        if result["status"] in {"elaborated", "invalid"}:
+            store_check(cache, key, result)
+            created_caches.append(cache)
+        return result
+
     checked = 0
     for proof in tables["proofs"]:
         if limit is not None and checked >= limit:
@@ -169,17 +185,17 @@ def verify(work, limit=None, timeout=60):
         )
         cache = work / "verification-cache" / f"{key}.json"
         if cache.exists():
-            result = read_json(cache)
+            result = load_check(cache, key, {"valid", "invalid"})
         else:
             if problem["id"] not in baselines:
-                baseline = check_problem(problem, environment, runtime, timeout)
+                baseline = baseline_for(problem, environment, runtime)
                 baselines[problem["id"]] = baseline
             result = check_proof(
                 problem, proof, environment, runtime, baselines[problem["id"]], timeout
             )
             # Infrastructure failures are retried on future runs.
             if result["status"] in {"valid", "invalid"}:
-                write_json(cache, result)
+                store_check(cache, key, result)
                 created_caches.append(cache)
         proof["verification_status"] = result["status"]
         reports.append({"proof_id": proof["id"], "cache_key": key, **result})
@@ -190,9 +206,7 @@ def verify(work, limit=None, timeout=60):
             env_id = problem["environment_id"]
             try:
                 environment, runtime = guard.get(env_id)
-                baselines[problem["id"]] = check_problem(
-                    problem, environment, runtime, timeout
-                )
+                baselines[problem["id"]] = baseline_for(problem, environment, runtime)
             except ValueError as e:
                 baselines[problem["id"]] = {
                     "status": "inconclusive",

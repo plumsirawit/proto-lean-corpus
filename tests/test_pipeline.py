@@ -30,7 +30,7 @@ def test_acquisition_integrity_and_deferred(tmp_path):
 
 
 @pytest.mark.lean
-def test_end_to_end(real_lean, tmp_path):
+def test_end_to_end(real_lean, tmp_path, monkeypatch):
     work = tmp_path / "work"
     sid = acquire(work, REGISTRY, "numina_math_lean", Path("tests/fixtures/numina"))
     manifest = check_snapshot(work / "snapshots" / sid)
@@ -59,6 +59,31 @@ def test_end_to_end(real_lean, tmp_path):
             assert (output / ref).is_file()
     assert len(read_tables(output / "views" / "verified")["proofs"]) == 2
     assert str(work) not in json.dumps(read_json(output / "quality.json"))
+    # A resumed run reuses both real completed proof and statement checks.
+    import lean_corpus.verify as verifier
+    from lean_corpus.check_cache import CheckCacheCorruption
+
+    assert len(list((work / "statement-cache").glob("*.json"))) == 3
+    with monkeypatch.context() as context:
+
+        def unexpected_check(*args, **kwargs):
+            pytest.fail("completed inspection was not resumed from cache")
+
+        context.setattr(verifier, "check_problem", unexpected_check)
+        context.setattr(verifier, "check_proof", unexpected_check)
+        assert verify(work) == statuses
+    # A damaged cache cannot retain a terminal validity claim in an export.
+    for cache in (work / "verification-cache").glob("*.json"):
+        record = read_json(cache)
+        if record["result"]["status"] == "valid":
+            record["result"]["reason"] = "damaged cache"
+            write_json(cache, record)
+            break
+    with pytest.raises(CheckCacheCorruption):
+        verify(work)
+    damaged = export(work, tmp_path / "damaged-cache-release")
+    assert len(damaged["stale_statuses_reset"]) == 1
+    assert damaged["verification_status"]["unverified"] == 1
     assert normalize(work, REGISTRY) == stats
     deduplicate(work)
     assert len(read_tables(work / "canonical")["proofs"]) == 4

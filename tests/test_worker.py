@@ -98,3 +98,26 @@ def test_worker_metaprogramming_falls_back_read_only(
     assert result["errors"]
     assert guard.read_text() == "preserved"
     assert STATS["fallbacks"] == before + 2
+
+
+def test_worker_masks_proof_metaprogramming_only_during_parse(
+    real_lean, worker_runtime, tmp_path
+):
+    guard = tmp_path / "guard.txt"
+    guard.write_text("preserved")
+    worker_runtime["project_dir"] = str(tmp_path)
+    source = (
+        "import Lean\ntheorem t : True := by\n"
+        '  run_tac do IO.FS.writeFile "guard.txt" "changed"\n  trivial'
+    )
+    before = STATS["fallbacks"]
+    parsed = inspect(source, real_lean, worker_runtime)
+    assert not parsed["errors"] and len(parsed["targets"]) == 1
+    assert parsed["admissions"] == 0  # original syntax retained
+    assert STATS["fallbacks"] == before
+    assert guard.read_text() == "preserved"
+    result = inspect(source, real_lean, worker_runtime, "verify", "t")
+    assert any("read-only" in error.lower() for error in result["errors"])
+    assert STATS["fallbacks"] == before + 1
+    assert guard.read_text() == "preserved"
+    assert STATS["peak_vm_size_kib"] >= STATS["peak_rss_kib"] > 0

@@ -57,7 +57,19 @@ def test_full_response_context_shape(real_lean):
         "by sorry", "by trivial"
     )
     assert proof_term(documented, TASK, real_lean, {}) == "by trivial"
-    for prefix in ("import Lean\n", "set_option autoImplicit false\n"):
+    module_task = "/-! Original module documentation. -/\n" + TASK
+    assert (
+        proof_term(TASK.replace("by sorry", "by trivial"), module_task, real_lean, {})
+        == "by trivial"
+    )
+    module_response = "/-! Supplied module documentation. -/\n" + TASK.replace(
+        "by sorry", "by trivial"
+    )
+    assert proof_term(module_response, TASK, real_lean, {}) == "by trivial"
+    from lean_corpus.adapters.records import statement
+
+    assert statement(module_task, real_lean, {})[0] == module_task
+    for prefix in ("import Lean\n", "set_option autoImplicit false\n", "open Nat\n"):
         with pytest.raises(Unsupported, match="changed"):
             proof_term(prefix + response, TASK, real_lean, {})
     invalid = TASK.replace("by sorry", "by exact Nat.zero")

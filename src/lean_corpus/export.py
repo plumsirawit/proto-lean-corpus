@@ -9,6 +9,7 @@ from .common import VERSION, digest, file_hash, read_json, safe_relative, write_
 from .deduplicate import require_current
 from .schema import SCHEMAS, read_tables, write_tables
 from .verify import cache_key
+from .check_cache import CheckCacheCorruption, load_check
 from .runtime import RuntimeGuard
 
 DATA_LICENSE = "Our original contributions and compilation/database rights, to the extent applicable, are licensed under CC BY-SA 4.0. Third-party material retains its applicable upstream licenses, identified in the source manifest and accompanying notices. This license does not replace or restrict permissions independently granted by upstream licensors."
@@ -36,9 +37,10 @@ def export(
                 cache = work / "verification-cache" / f"{key}.json"
                 matches = (
                     cache.exists()
-                    and read_json(cache)["status"] == proof["verification_status"]
+                    and load_check(cache, key, {"valid", "invalid"})["status"]
+                    == proof["verification_status"]
                 )
-            except ValueError:
+            except (ValueError, CheckCacheCorruption):
                 matches = False
             if not matches:
                 proof["verification_status"] = "unverified"
@@ -97,8 +99,9 @@ def export(
         if (work / "reports").exists():
             shutil.copytree(work / "reports", dest / "reports")
         # Cache artifacts contain only isolated Lean logs and portable identifiers.
-        if (work / "verification-cache").exists():
-            shutil.copytree(work / "verification-cache", dest / "verification-cache")
+        for name in ("verification-cache", "statement-cache"):
+            if (work / name).exists():
+                shutil.copytree(work / name, dest / name)
         for file in (sources, pipeline, "pyproject.toml", "uv.lock", "lean-toolchain"):
             p = Path(file)
             if p.is_file():

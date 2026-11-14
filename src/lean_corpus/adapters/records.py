@@ -11,25 +11,27 @@ class Unsupported(ValueError):
     pass
 
 
+def doc_metadata(shape):
+    return (
+        isinstance(shape, list)
+        and len(shape) == 3
+        and shape[0] == "node"
+        and shape[1]
+        in {"Lean.Parser.Command.docComment", "Lean.Parser.Command.moduleDoc"}
+    )
+
+
 def comparable_shape(shape):
-    """Ignore only parsed declaration doc metadata, never source text or code."""
+    """Ignore only parsed documentation metadata; source and task IDs are unchanged."""
     if not isinstance(shape, list):
         return shape
     if len(shape) == 3 and shape[0] == "node":
         return [
             shape[0],
             shape[1],
-            [
-                comparable_shape(child)
-                for child in shape[2]
-                if not (
-                    isinstance(child, list)
-                    and len(child) == 3
-                    and child[:2] == ["node", "Lean.Parser.Command.docComment"]
-                )
-            ],
+            [comparable_shape(child) for child in shape[2] if not doc_metadata(child)],
         ]
-    return [comparable_shape(child) for child in shape]
+    return [comparable_shape(child) for child in shape if not doc_metadata(child)]
 
 
 def rows(path):
