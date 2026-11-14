@@ -14,8 +14,8 @@ jobs:
           version: '0.9.8'
           python-version: '3.10'
       - run: uv sync --locked
-      - run: uv run --locked ruff check src tests
-      - run: uv run --locked ruff format --check src tests
+      - run: uv run --locked ruff check src tests scripts
+      - run: uv run --locked ruff format --check src tests scripts
       - run: uv run --locked pytest -m 'not lean'
       - name: Install pinned integration toolchain
         run: |

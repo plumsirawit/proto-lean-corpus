@@ -4,6 +4,6 @@ setup:
 test:
 	uv run --locked pytest
 lint:
-	uv run --locked ruff check src tests
+	uv run --locked ruff check src tests scripts
 demo:
 	uv run --locked python tests/demo.py --work-dir .work/demo --output-dir .work/demo-export
