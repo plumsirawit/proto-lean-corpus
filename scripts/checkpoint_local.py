@@ -4,6 +4,8 @@ import argparse
 from datetime import datetime, timezone
 import hashlib
 import json
+import errno
+import os
 from pathlib import Path
 import subprocess
 from euler_quota import check
@@ -27,8 +29,21 @@ def main():
         parser.error("numeric job ID and existing workspace required")
     if args.stage.resolve().is_relative_to(args.workspace.resolve()):
         parser.error("checkpoint destination must be outside the workspace")
-    entries = list(args.workspace.rglob("*"))
-    estimate = sum(p.lstat().st_size for p in entries) + 4096 * len(entries)
+
+    def walk_error(error):
+        if error.errno != errno.ENOENT:
+            raise error
+
+    estimate = 0
+    for directory, subdirs, files in os.walk(
+        args.workspace, onerror=walk_error, followlinks=False
+    ):
+        for name in subdirs + files:
+            try:
+                estimate += (Path(directory) / name).lstat().st_size + 4096
+            except FileNotFoundError:
+                # Atomic stage replacement can remove a path between listing and stat.
+                continue
     check(args.stage, estimate, 20)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
     stem = f"full-{args.job_id}"
@@ -38,6 +53,7 @@ def main():
         [
             "tar",
             "--exclude=*.tmp",
+            f"--exclude={args.workspace.name}/tmp????????",
             "-cf",
             str(temporary),
             "-C",
@@ -48,8 +64,10 @@ def main():
         text=True,
     )
     if result.returncode not in {0, 1}:
+        temporary.unlink(missing_ok=True)
         raise RuntimeError("checkpoint archive failed: " + result.stderr)
     if args.phase == "final" and args.runner_exit == 0 and result.returncode != 0:
+        temporary.unlink(missing_ok=True)
         raise RuntimeError(
             "completed run changed during final archival: " + result.stderr
         )
