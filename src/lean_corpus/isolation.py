@@ -16,7 +16,7 @@ def sandbox(spec):
             for x in (source, target, filesystem)
         ]
         if libc.mount(*args, ctypes.c_ulong(flags), data) != 0:
-            raise OSError(ctypes.get_errno(), f"mount {target}")
+            raise OSError(ctypes.get_errno(), f"mount {target} flags={flags:#x}")
 
     # Namespace created by unshare. Make all mount changes private.
     mount(None, "/", flags=(1 << 18) | (1 << 14))
@@ -41,8 +41,10 @@ def sandbox(spec):
         mount(
             None,
             str(dest),
-            flags=4096 | 32 | 1 | 2 | (0 if src.startswith("/dev/") else 4),
-        )  # bind,remount,ro,nosuid,nodev
+            # Hosted runners lock /dev's noexec flag in user namespaces.
+            # Preserve it; dropping a locked restriction makes remount fail.
+            flags=4096 | 32 | 1 | 2 | (8 if src.startswith("/dev/") else 4),
+        )  # bind,remount,ro,nosuid, plus noexec for devices / nodev otherwise
     # Recreate standard merged-/usr links where the host uses them.
     for name in ("bin", "lib", "lib64"):
         host = Path("/") / name
