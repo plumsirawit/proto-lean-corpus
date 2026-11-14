@@ -57,7 +57,9 @@ no partition is selected by the template. Defaults are one CPU, 12 GiB memory,
 Lean has a separate 8 GiB address-space cap and finite inspection deadlines.
 
 Every 15 minutes and at exit, a quota check reserves archive space and file
-headroom below 80% of the soft limits. A checkpoint includes the acquired raw
+headroom below 80% of the soft limits. It queries the destination directory’s
+filesystem directly; an unrelated home quota RPC failure cannot block a scratch
+checkpoint. An unavailable destination quota check still prevents the write. A checkpoint includes the acquired raw
 snapshot and completed caches. Temporary JSON writes are excluded. The archive,
 SHA-256 file and metadata are written before atomically updating
 `full-<job-id>-latest.json`. Only two identified generations for that job are

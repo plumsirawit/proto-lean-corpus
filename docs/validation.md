@@ -153,3 +153,32 @@ responses. Three real-Lean regressions passed in job 20870943 (104.63 seconds),
 including successful kernel verification through the retained helper and rejection
 of changed helper proofs/types. An expanded real-data pilot is the next gate; the
 earlier five-of-196 result does not establish coverage of those templates.
+
+
+The supporting-context fix at `3ff7a0b` passed strict CI: 31 tests, comprising
+12 without Lean and 19 with real Lean, no skips. The expanded selection combines
+the original 1,000 rows with all 196 whitespace-ending templates; nine overlap,
+so it contains 1,187 unique original rows. Job 20872204 completed all five stages
+with 995 candidate problems and 1,205 unique attempts (1,207 before deduplication):
+656 valid, 522 invalid and 27 resource-limited. There were 229 extraction reports.
+
+Audit job 20872584 verified the final archive checksum, complete report coverage,
+all 1,148 previously terminal verdicts, byte-identical repeat normalization
+(1,187 cache hits, no misses), and equal re-exported logical tables. No generated
+statement placeholder became a proof attempt. Forty of the 196 focused rows were
+retained; 147 had admitted supporting context and nine had unsupported syntax.
+All 992 retained well-formed contexts elaborated; three further candidates omitted
+imports and failed elaboration as supplied. These remain explicitly invalid in
+the per-problem report, rather than being silently given an inferred prelude.
+The proof-discovery view contains candidates, so consumers must consult that
+report when selecting well-formed tasks. The verified-proof view remains the
+safe selection for already checked proof attempts.
+
+The 522 invalid attempts comprised 457 using `sorryAx`, 57 using
+`Lean.ofReduceBool`, and eight using both. Those labels distinguish admissions
+and foundational-policy exclusions from false informal mathematics. These enriched
+samples measure extraction coverage, not the full corpus's prevalence or quality.
+A transient quota RPC failure rejected one periodic checkpoint; the previous
+archives stayed intact, and the final checkpoint and independent audit succeeded.
+The quota helper now queries only its destination filesystem and still refuses
+writes when that quota cannot be checked.

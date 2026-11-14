@@ -13,7 +13,11 @@ def check(path, reserve_bytes=0, reserve_files=0, fraction=0.8):
             "nonnegative reserves and a fraction between zero and one are required"
         )
     target = Path(path).resolve()
-    output = subprocess.check_output(["lquota", "-b", "-P"], text=True, timeout=30)
+    # Query the destination filesystem; unrelated home quota RPC failures must not
+    # block a scratch checkpoint. Any failure for this destination still aborts.
+    output = subprocess.check_output(
+        ["lquota", "-b", "-P", str(target)], text=True, timeout=30
+    )
     rows = list(csv.DictReader(io.StringIO(output), delimiter="|"))
     matching = [
         r for r in rows if target.is_relative_to(Path(r["Storage location"].strip()))
