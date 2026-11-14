@@ -119,3 +119,18 @@ Each produced eight valid proofs from the first ten input rows. The completed-ca
 resume executed only the synthetic runtime probe; corpus checks reused validated
 cache evidence. Checkpoints and real data remain private on scratch. The controller
 and its storage/resource settings are documented in [hpc.md](hpc.md).
+
+At source revision `846aa3a`, strict CI passed all 30 tests (12 without Lean and
+18 with real Lean, no skips), including empty target slots, trailing whitespace,
+trailing comments, and rejection of truncated binders/nested initializers. The
+focused real-Lean regression also passed on Euler in job 20864026 (22.95 seconds).
+
+The corrected 1,000-row pilot completed all five stages in job 20864906. It retained
+945 problems and 1,175 unique proof attempts: 636 valid, 512 invalid and 27
+inconclusive under the recorded resource limits. Normalization produced 1,177
+attempt occurrences before deduplication and 72 extraction reports. The empty-slot
+fix recovered 14 problems and nine unique attempts relative to the preceding
+pilot; the valid count increased by four and the invalid count by five. The
+export reset no stale statuses. Its final quota-checked checkpoint completed with
+a SHA-256 receipt, rather than relying on a time-limited job's partial saving.
+These results still describe a category-balanced sample, not corpus prevalence.
