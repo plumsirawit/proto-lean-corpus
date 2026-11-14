@@ -40,6 +40,43 @@ def test_empty_target_slots(real_lean):
             assert error.value.reason == "unsupported_syntax"
 
 
+def test_complete_supporting_theorems(real_lean):
+    prefix = "theorem helper : True := by trivial\n"
+    for suffix in ("theorem t : True := by\n  ", "theorem t : True :=", TASK):
+        result = ADAPTERS["numina_math_lean"](
+            {"formal_statement": prefix + suffix, "formal_proof": "by exact helper"},
+            real_lean,
+            {},
+        )
+        assert result["target"] == "t"
+        assert result["task"].startswith(prefix + TASK)
+        assert result["attempts"] == [
+            {"proof": "by exact helper", "field": "formal_proof", "informal": None}
+        ]
+    task = prefix + TASK
+    term = proof_term(
+        prefix + TASK.replace("by sorry", "by exact helper"), task, real_lean, {}
+    )
+    assert term == "by exact helper"
+    problem = {"id": "support", "formal_statement": task, "target_name": "t"}
+    baseline = check_problem(problem, real_lean, {})
+    assert baseline["status"] == "elaborated", baseline
+    checked = check_proof(problem, {"formal_proof": term}, real_lean, {}, baseline)
+    assert checked["status"] == "valid", checked
+    for changed in (
+        prefix.replace("by trivial", "by exact True.intro"),
+        prefix.replace("helper : True", "helper : False"),
+    ):
+        with pytest.raises(Unsupported, match="changed"):
+            proof_term(changed + TASK.replace("by sorry", term), task, real_lean, {})
+    for bad in (
+        prefix.replace("by trivial", "by sorry") + "theorem t : True := by\n",
+        prefix + TASK.replace("by sorry", "by trivial"),
+    ):
+        with pytest.raises(Unsupported):
+            ADAPTERS["numina_math_lean"]({"formal_statement": bad}, real_lean, {})
+
+
 def test_structural_boundaries(real_lean):
     source = 'def text := "sorry"\n/- sorry /- sorry -/ -/\n-- sorry\n' + TASK
     assert target_info(source, real_lean)["name"] == "t"

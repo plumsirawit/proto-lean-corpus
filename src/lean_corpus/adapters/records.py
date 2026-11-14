@@ -75,6 +75,14 @@ def nonempty(value):
     return isinstance(value, str) and bool(value.strip())
 
 
+def placeholder_targets(source, parsed):
+    return [
+        target
+        for target in parsed["targets"]
+        if "body" in target and slice_span(source, target["body"]) == "by sorry"
+    ]
+
+
 def statement(value, env, runtime):
     if not nonempty(value):
         raise Unsupported("missing formal_statement")
@@ -89,17 +97,17 @@ def statement(value, env, runtime):
         source = source[:position] + addition + source[position:]
         inserted_end = len(source[: position + len(addition)].encode())
     parsed = inspect(source, env, runtime)
+    selected_target = None
     if inserted_end is not None:
         # Only complete the target's entire empty proof slot. A trailing comment,
         # binder initializer, or nested let must not become a fabricated proof.
-        targets = parsed["targets"]
-        completed_target = (
-            len(targets) == 1
-            and "body" in targets[0]
-            and targets[0]["body"][0] < inserted_end <= targets[0]["body"][1]
-            and slice_span(source, targets[0]["body"]) == "by sorry"
-        )
-        if completed_target:
+        completed_targets = [
+            target
+            for target in placeholder_targets(source, parsed)
+            if target["body"][0] < inserted_end <= target["body"][1]
+        ]
+        if len(completed_targets) == 1:
+            selected_target = completed_targets[0]
             transformations.append(
                 "Completed supplied empty target proof with canonical placeholder"
             )
@@ -111,16 +119,26 @@ def statement(value, env, runtime):
             "imports_unavailable",
             "task imports unavailable in the recorded resolved environment",
         )
-    if len(parsed["targets"]) != 1:
-        if len(parsed["targets"]) > 1 and parsed["admissions"] > 1:
+    if selected_target is None:
+        placeholders = placeholder_targets(source, parsed)
+        if len(placeholders) == 1 and parsed["admissions"] == 1:
+            selected_target = placeholders[0]
+        elif len(parsed["targets"]) == 1:
+            selected_target = parsed["targets"][0]
+        elif parsed["admissions"] > 1:
             raise Unsupported(
                 "multiple target placeholders / admitted supporting lemmas; supporting context must be completed explicitly"
             )
-        raise Unsupported("expected exactly one theorem target")
-    target = parsed["targets"][0]
+        else:
+            raise Unsupported("expected exactly one designated theorem target")
+    target = selected_target
     if "unsupported" in target:
         raise Unsupported(target["unsupported"])
     original = slice_span(source, target["body"])
+    if original == "by sorry" and parsed["admissions"] != 1:
+        raise Unsupported(
+            "multiple target placeholders / admitted supporting lemmas; supporting context must be completed explicitly"
+        )
     if original != "by sorry":
         transformations.append(
             {
@@ -133,7 +151,7 @@ def statement(value, env, runtime):
     if original == "by sorry" and parsed["admissions"] == 1:
         skeleton = parsed.get("task_skeleton")
     else:
-        target_info(task, env, runtime)
+        target_info(task, env, runtime, target["name"])
     return (
         task,
         target["name"],
@@ -162,11 +180,37 @@ def proof_term(value, task, env, runtime, response=False, task_skeleton=None):
         # command injection; it is not assumed successful here.
         return value
     parsed = inspect(value, env, runtime)
-    if len(parsed["targets"]) != 1:
+    if not parsed["targets"]:
         raise Unsupported(
             "response is neither replacement term nor single full theorem"
         )
-    target = parsed["targets"][0]
+    fixed = None
+    if len(parsed["targets"]) == 1:
+        target = parsed["targets"][0]
+    else:
+        fixed = inspect(task, env, runtime)
+        placeholders = placeholder_targets(task, fixed)
+        if len(placeholders) != 1 or fixed["admissions"] != 1:
+            raise Unsupported("task has no unique designated target")
+        name = placeholders[0]["name"]
+        targets = [t for t in parsed["targets"] if t["name"] == name]
+        if len(targets) != 1:
+            raise Unsupported(
+                "full-theorem response changed target statement or context"
+            )
+        target = targets[0]
+
+        # The helper's skeleton masks every theorem body. Preserve supporting
+        # proofs explicitly so that comparison may mask only the designated target.
+        def supporting(source, targets):
+            return [
+                (t["name"], slice_span(source, t["body"]))
+                for t in targets
+                if t["name"] != name and "body" in t
+            ]
+
+        if supporting(value, parsed["targets"]) != supporting(task, fixed["targets"]):
+            raise Unsupported("full-theorem response changed supporting proofs/context")
     if "unsupported" in target:
         raise Unsupported(target["unsupported"])
     body = slice_span(value, target["body"])
@@ -174,7 +218,7 @@ def proof_term(value, task, env, runtime, response=False, task_skeleton=None):
     if candidate.strip() != task.strip():
         fixed_skeleton = task_skeleton
         if fixed_skeleton is None:
-            fixed_skeleton = inspect(task, env, runtime).get("task_skeleton")
+            fixed_skeleton = (fixed or inspect(task, env, runtime)).get("task_skeleton")
         if parsed.get("task_skeleton") is None or comparable_shape(
             parsed["task_skeleton"]
         ) != comparable_shape(fixed_skeleton):

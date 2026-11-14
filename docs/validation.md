@@ -134,3 +134,22 @@ pilot; the valid count increased by four and the invalid count by five. The
 export reset no stale statuses. Its final quota-checked checkpoint completed with
 a SHA-256 receipt, rather than relying on a time-limited job's partial saving.
 These results still describe a category-balanced sample, not corpus prevalence.
+
+
+Audit job 20866199 independently verified the final checkpoint SHA-256, all 945
+statement elaborations and all 1,139 unchanged terminal verdicts. Repeated
+normalization produced byte-identical Parquet, and re-export preserved the logical
+tables without stale statuses. The 512 invalid attempts comprised 449 using
+`sorryAx`, 55 using `Lean.ofReduceBool`, and eight using both. The 27 inconclusive
+attempts hit 26 heartbeat limits and one memory limit.
+
+The same audit examined all 196 original statement templates ending in `by` plus
+whitespace. Only five were retained. Inspection exposed an additional extractor
+bug: complete supporting theorems were counted as competing targets, so an empty
+target following a fully proved helper was rejected. The follow-up selects the
+unique designated placeholder while preserving complete helpers, rejects admitted
+supporting context, and checks supporting proof bytes when extracting full-source
+responses. Three real-Lean regressions passed in job 20870943 (104.63 seconds),
+including successful kernel verification through the retained helper and rejection
+of changed helper proofs/types. An expanded real-data pilot is the next gate; the
+earlier five-of-196 result does not establish coverage of those templates.
