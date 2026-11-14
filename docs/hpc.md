@@ -73,3 +73,8 @@ Monitor with `squeue`, `sacct`, the job log and checkpoint metadata. A completed
 processing run can still contain invalid, resource-limited or unsupported records;
 inspect its quality and verification/extraction reports before any later release.
 Dataset publication is a separate action and is not implemented by these scripts.
+
+The export's `reports/effective-execution.json` records the actual inspection
+limits, worker backend/lifetime, project-relative module paths and checking policy.
+Use it in preference to example defaults in `configs/pipeline.yaml`. Machine-local
+project paths stay out of the report. Original Lean task options remain unchanged.

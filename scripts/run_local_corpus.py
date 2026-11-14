@@ -12,7 +12,7 @@ from lean_corpus.common import read_json, write_json
 from lean_corpus.deduplicate import deduplicate
 from lean_corpus.export import export
 from lean_corpus.extraction_cache import implementation_digest
-from lean_corpus.lean import inspect
+from lean_corpus.lean import POLICY, inspect
 from lean_corpus.normalize import normalize
 from lean_corpus.runtime import RuntimeGuard
 from lean_corpus.verify import verify
@@ -49,6 +49,8 @@ def main():
         "sources": args.source,
         "dataset_revision": args.dataset_revision,
         "expected_input_rows": args.expected_input_rows,
+        "limit": args.limit,
+        "selection_file": args.selection.name if args.selection else None,
         "stages": {},
     }
 
@@ -77,8 +79,21 @@ def main():
         runtimes = list((args.work_dir / "runtimes").glob("*.json"))
         if not runtimes:
             raise RuntimeError("a prepared checking runtime is required")
+        effective = {}
         for path in runtimes:
             environment, runtime = guard.get(path.stem)
+            paths = runtime.get("lean_path", [])
+            if any(Path(p).is_absolute() or ".." in Path(p).parts for p in paths):
+                raise RuntimeError(
+                    "the batch template requires project-relative module paths"
+                )
+            effective[path.stem] = {
+                "runner": runtime.get("runner", "process"),
+                "memory_mb": runtime.get("memory_mb", 4096),
+                "parse_timeout_seconds": runtime.get("parse_timeout", 60),
+                "worker_max_cases": runtime.get("worker_max_cases", 512),
+                "lean_path": paths,
+            }
             probe = inspect(
                 f"import {args.probe_import}\ntheorem __corpus_runtime_probe : True := by trivial",
                 environment,
@@ -92,6 +107,16 @@ def main():
                     "runtime preflight did not pass the real kernel check"
                 )
         guard.finish()
+        execution = {
+            "code_revision": state["code_revision"],
+            "code_digest": state["code_digest"],
+            "verification_timeout_seconds": args.timeout,
+            "environments": effective,
+            "verification_policy": POLICY,
+            "task_options": "original task options and Lean defaults are unchanged",
+        }
+        write_json(args.work_dir / "reports/effective-execution.json", execution)
+        state["effective_execution"] = execution
         record("normalize")
         result = normalize(
             args.work_dir, args.sources, args.source, args.limit, args.selection
