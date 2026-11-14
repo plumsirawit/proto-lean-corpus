@@ -45,8 +45,7 @@ def inspect(
     toolchain = environment.get("toolchain") or "leanprover/lean4:v4.19.0"
     # Resolve only installed toolchains. Never invoke elan's implicit downloader.
     tools = (
-        Path.home()
-        / ".elan"
+        Path(os.environ.get("ELAN_HOME", str(Path.home() / ".elan")))
         / "toolchains"
         / toolchain.replace("/", "--").replace(":", "---")
     )

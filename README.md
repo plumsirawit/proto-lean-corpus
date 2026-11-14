@@ -4,7 +4,7 @@ A local, reproducible pipeline for assembling a Lean 4 **proof-discovery** corpu
 
 ## Setup and fixture run
 
-Requires Python 3.10+, [uv](https://docs.astral.sh/uv/), Linux with unprivileged user/mount/PID/network namespaces, and an installed Lean toolchain for parsing. The tested helper toolchain is `leanprover/lean4:v4.19.0`; environments use their own recorded versions for checking. Processing never implicitly installs Lean, builds dependencies, or selects a latest Mathlib.
+Requires Python 3.10+, [uv](https://docs.astral.sh/uv/), Linux with unprivileged user/mount/PID/network namespaces, and an installed Lean toolchain for parsing. The tested helper toolchain is `leanprover/lean4:v4.19.0`; environments use their own recorded versions for checking. Processing never implicitly installs Lean, builds dependencies, or selects a latest Mathlib. The checker respects `ELAN_HOME`; installed toolchains and prepared dependency builds can be copied to local disk on hosts with slow shared filesystems, while raw and processed data remain in the chosen work directory.
 
 ```sh
 uv sync --locked

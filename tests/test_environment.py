@@ -6,6 +6,15 @@ from lean_corpus.environment import environment_for, resolve_environment
 from lean_corpus.verify import validate_runtime
 
 
+def test_checker_respects_elan_home(monkeypatch, tmp_path, core_env):
+    from lean_corpus.lean import LeanFailure, inspect
+
+    monkeypatch.setenv("ELAN_HOME", str(tmp_path))
+    with pytest.raises(LeanFailure) as error:
+        inspect("", core_env)
+    assert error.value.reason == "toolchain_unavailable"
+
+
 def test_resolution_is_explicit_and_changes_identity(tmp_path):
     work = tmp_path / "work"
     raw = tmp_path / "raw"
