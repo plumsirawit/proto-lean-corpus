@@ -64,3 +64,11 @@ fallback execution. A focused rerun checks source-defined metaprogramming fallba
 and normalization after final validation changes. Corpus-scale results remain
 separate from these synthetic regression results.
 The final focused rerun passed all five checks in 112.40 seconds.
+
+Runtime validation now hashes each pinned project once per verification/export
+stage and rechecks its source, dependency revisions, environment manifest, and
+runtime mapping before publishing stage output. This avoids rehashing the whole
+Mathlib checkout for every proof. A synthetic mutation test verifies both bounded
+validation calls and rejection of changed files/mappings/manifests. All 11 tests
+without Lean passed. The real five-stage synthetic integration test passed in
+29.76 seconds in Slurm job 20851223; namespace isolation also passed in job 20851051.

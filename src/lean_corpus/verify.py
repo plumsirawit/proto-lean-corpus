@@ -11,7 +11,7 @@ from .lean import (
     slice_span,
     target_info,
 )
-from .normalize import runtime_for
+from .runtime import RuntimeGuard, validate_runtime as validate_runtime
 from .schema import read_tables, write_tables
 
 
@@ -27,6 +27,7 @@ def cache_key(problem, proof, environment, policy=POLICY, backend="process"):
             "policy": policy,
             "backend": backend,
             "worker": file_hash(Path(__file__).with_name("worker.py")),
+            "runtime_guard": file_hash(Path(__file__).with_name("runtime.py")),
             "sources": problem.get("source_refs", []),
             "attempt_sources": proof.get("source_refs", []) if proof else [],
             "implementation": __version__,
@@ -140,17 +141,17 @@ def verify(work, limit=None, timeout=60):
     tables = read_tables(work / "canonical")
     problems = {p["id"]: p for p in tables["problems"]}
     baselines, reports = {}, []
+    guard = RuntimeGuard(work)
+    created_caches = []
     checked = 0
     for proof in tables["proofs"]:
         if limit is not None and checked >= limit:
             break
         problem = problems[proof["problem_id"]]
         env_id = problem["environment_id"]
-        environment = read_json(work / "environments" / f"{env_id}.json")
-        runtime = runtime_for(work, env_id)
         # Validate recorded configuration against the runtime before trusting it.
         try:
-            validate_runtime(environment, runtime)
+            environment, runtime = guard.get(env_id)
         except ValueError as e:
             proof["verification_status"] = "inconclusive"
             reports.append(
@@ -179,6 +180,7 @@ def verify(work, limit=None, timeout=60):
             # Infrastructure failures are retried on future runs.
             if result["status"] in {"valid", "invalid"}:
                 write_json(cache, result)
+                created_caches.append(cache)
         proof["verification_status"] = result["status"]
         reports.append({"proof_id": proof["id"], "cache_key": key, **result})
         checked += 1
@@ -186,10 +188,8 @@ def verify(work, limit=None, timeout=60):
     for problem in tables["problems"][:limit]:
         if problem["id"] not in baselines:
             env_id = problem["environment_id"]
-            environment = read_json(work / "environments" / f"{env_id}.json")
-            runtime = runtime_for(work, env_id)
             try:
-                validate_runtime(environment, runtime)
+                environment, runtime = guard.get(env_id)
                 baselines[problem["id"]] = check_problem(
                     problem, environment, runtime, timeout
                 )
@@ -199,6 +199,13 @@ def verify(work, limit=None, timeout=60):
                     "reason": "runtime_mismatch",
                     "detail": str(e),
                 }
+    try:
+        guard.finish()
+        require_current(work)
+    except BaseException:
+        for path in created_caches:
+            path.unlink(missing_ok=True)
+        raise
     write_tables(work / "canonical", tables)
     write_json(
         work / "reports" / "verification.json",
@@ -208,37 +215,3 @@ def verify(work, limit=None, timeout=60):
         status: sum(p["verification_status"] == status for p in tables["proofs"])
         for status in ("unverified", "valid", "invalid", "inconclusive")
     }
-
-
-def validate_runtime(environment, runtime):
-    if not environment["resolved"]:
-        return
-    if environment["packages"] or environment["build_config"]:
-        if not runtime.get("project_dir"):
-            raise ValueError("recorded project requires a prepared --runtime mapping")
-        root = Path(runtime["project_dir"])
-        for entry in environment.get("project_files", []):
-            p = root / entry["path"]
-            if not p.is_file() or file_hash(p) != entry["sha256"]:
-                raise ValueError("runtime source differs: " + entry["path"])
-        for name, content in environment["build_config"].items():
-            p = root / name
-            if not p.is_file() or p.read_text() != content:
-                raise ValueError(f"runtime configuration differs: {name}")
-        for package in environment["packages"]:
-            import subprocess
-
-            p = root / ".lake" / "packages" / package["name"]
-            try:
-                rev = subprocess.check_output(
-                    ["git", "-C", str(p), "rev-parse", "HEAD"],
-                    text=True,
-                    stderr=subprocess.DEVNULL,
-                ).strip()
-                dirty = subprocess.check_output(
-                    ["git", "-C", str(p), "status", "--porcelain"], text=True
-                )
-            except (OSError, subprocess.CalledProcessError) as e:
-                raise ValueError("dependency unavailable: " + package["name"]) from e
-            if rev != package["rev"] or dirty:
-                raise ValueError("dependency differs: " + package["name"])

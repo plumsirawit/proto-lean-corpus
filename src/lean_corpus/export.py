@@ -8,8 +8,8 @@ from .acquire import check_snapshot
 from .common import VERSION, digest, file_hash, read_json, safe_relative, write_json
 from .deduplicate import require_current
 from .schema import SCHEMAS, read_tables, write_tables
-from .verify import cache_key, validate_runtime
-from .normalize import runtime_for
+from .verify import cache_key
+from .runtime import RuntimeGuard
 
 DATA_LICENSE = "Our original contributions and compilation/database rights, to the extent applicable, are licensed under CC BY-SA 4.0. Third-party material retains its applicable upstream licenses, identified in the source manifest and accompanying notices. This license does not replace or restrict permissions independently granted by upstream licensors."
 
@@ -23,21 +23,17 @@ def export(
         raise ValueError("export destination already exists; use a new directory")
     tables = read_tables(work / "canonical")
     stale = []
+    guard = RuntimeGuard(work)
     problems = {r["id"]: r for r in tables["problems"]}
     # Never export a stale 'valid' status after environment/policy changes.
     for proof in tables["proofs"]:
         if proof["verification_status"] in {"valid", "invalid"}:
             p = problems[proof["problem_id"]]
-            env = read_json(work / "environments" / f"{p['environment_id']}.json")
-            key = cache_key(
-                p,
-                proof,
-                env,
-                backend=runtime_for(work, p["environment_id"]).get("runner", "process"),
-            )
-            cache = work / "verification-cache" / f"{key}.json"
+            env_id = p["environment_id"]
             try:
-                validate_runtime(env, runtime_for(work, p["environment_id"]))
+                env, runtime = guard.get(env_id)
+                key = cache_key(p, proof, env, backend=runtime.get("runner", "process"))
+                cache = work / "verification-cache" / f"{key}.json"
                 matches = (
                     cache.exists()
                     and read_json(cache)["status"] == proof["verification_status"]
@@ -168,5 +164,7 @@ def export(
             + DATA_LICENSE
             + "\n\nThird-party attribution and original license declarations are under snapshots/<source-id>/original/. Acquisition manifests inventory the complete originals by path and SHA-256; payloads are retained in the local acquisition workspace, not duplicated in this release. Environment manifests are under environments/.\n\nPutnamBench is eligible training content, not held out. Source exposure is reported in quality.json. Deduplication does not establish absence of benchmark contamination. No train/dev/test split is assigned. Verification checks formal consistency, not semantic correspondence to informal mathematics.\n\nThe proof-discovery view contains problems; the verified view selects only locally valid attempts. Unresolved environments and unsupported extraction forms are reported. Merged source counts overlap. Statement elaboration is not a proof of provability. Publication is a separate user action.\n"
         )
+        guard.finish()
+        require_current(work)
         dest.rename(output)
     return quality

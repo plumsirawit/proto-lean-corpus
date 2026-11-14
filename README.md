@@ -121,3 +121,17 @@ Rows must be unique nonnegative integers, and every requested row must exist in 
 selected acquired snapshot. Missing rows fail the stage. The exact selection is
 recorded in the extraction report. For slow hosts, `runtime --parse-timeout 180`
 sets the finite extraction deadline; verification has its separate `--timeout`.
+
+Keep a prepared checking project unchanged for the duration of each stage.
+Verification and export validate each distinct environment once, then recheck it
+before publishing output; changes abort the stage. This bounds project hashing by
+the number of environments rather than the number of proofs.
+
+On HPC systems, keep code and compact recovery archives in home, place large
+working datasets/exports on the site's scratch storage, and run sustained work
+through the batch scheduler. Stage toolchains and dependency builds into job-local
+storage when shared-filesystem metadata is expensive. Check both byte and file
+quotas before expanding pilots; JSON caches and exported logs also consume files.
+Scratch is temporary and needs a separate recovery/retention plan. For Euler, see
+[the storage guide](https://docs.hpc.ethz.ch/hardware/storage/) and
+[Slurm documentation](https://docs.hpc.ethz.ch/batchsystem/slurm/).
