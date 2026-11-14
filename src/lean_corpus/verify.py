@@ -15,7 +15,7 @@ from .normalize import runtime_for
 from .schema import read_tables, write_tables
 
 
-def cache_key(problem, proof, environment, policy=POLICY):
+def cache_key(problem, proof, environment, policy=POLICY, backend="process"):
     # Include actual records as well as IDs to fail safely on corrupted/manual edits.
     return digest(
         {
@@ -25,6 +25,8 @@ def cache_key(problem, proof, environment, policy=POLICY):
             "proof": proof["formal_proof"] if proof else None,
             "environment": environment,
             "policy": policy,
+            "backend": backend,
+            "worker": file_hash(Path(__file__).with_name("worker.py")),
             "sources": problem.get("source_refs", []),
             "attempt_sources": proof.get("source_refs", []) if proof else [],
             "implementation": __version__,
@@ -161,7 +163,9 @@ def verify(work, limit=None, timeout=60):
             )
             checked += 1
             continue
-        key = cache_key(problem, proof, environment)
+        key = cache_key(
+            problem, proof, environment, backend=runtime.get("runner", "process")
+        )
         cache = work / "verification-cache" / f"{key}.json"
         if cache.exists():
             result = read_json(cache)

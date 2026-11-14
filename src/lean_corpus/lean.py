@@ -27,21 +27,7 @@ def implementation_hash():
     return file_hash(HELPER)
 
 
-def inspect(
-    source,
-    environment,
-    runtime=None,
-    mode="parse",
-    target="",
-    timeout=60,
-    memory_mb=4096,
-):
-    runtime = runtime or {}
-    memory_mb = runtime.get("memory_mb", memory_mb)
-    if not isinstance(memory_mb, int) or memory_mb <= 0:
-        raise LeanFailure(
-            "invalid_resource_configuration", "memory_mb must be positive"
-        )
+def execution_config(environment, runtime):
     toolchain = environment.get("toolchain") or "leanprover/lean4:v4.19.0"
     # Resolve only installed toolchains. Never invoke elan's implicit downloader.
     tools = (
@@ -64,6 +50,79 @@ def inspect(
         "HOME": "/nonexistent",
         "LANG": "C.UTF-8",
     }
+    return tools, project, env
+
+
+def decode_result(result, mode, log=""):
+    if not isinstance(result, dict) or not all(
+        key in result for key in ("targets", "errors", "admissions", "imports_resolved")
+    ):
+        raise LeanFailure("inspection_protocol_failure", "incomplete checker result")
+    diagnostics = "\n".join(result.get("errors", [])).lower()
+    if any(
+        marker in diagnostics
+        for marker in (
+            "maximum recursion depth",
+            "maximum number of heartbeats",
+            "deterministic timeout",
+            "out of memory",
+            "stack overflow",
+        )
+    ):
+        raise LeanFailure("resource_exhaustion", log or diagnostics)
+    if any(
+        marker in diagnostics
+        for marker in (
+            "no such file or directory",
+            "unknown module prefix",
+            "failed to execute",
+            "error executing external",
+            "cannot evaluate `[init]`",
+        )
+    ):
+        raise LeanFailure("environment_failure", log or diagnostics)
+    if mode == "parse" and result.get("parse_failed"):
+        raise LeanFailure("unsupported_syntax", str(result["errors"]))
+    result["log"] = log
+    return result
+
+
+def inspect(
+    source,
+    environment,
+    runtime=None,
+    mode="parse",
+    target="",
+    timeout=None,
+    memory_mb=4096,
+):
+    runtime = runtime or {}
+    timeout = timeout if timeout is not None else runtime.get("parse_timeout", 60)
+    if not isinstance(timeout, int) or timeout <= 0:
+        raise LeanFailure("invalid_resource_configuration", "timeout must be positive")
+    memory_mb = runtime.get("memory_mb", memory_mb)
+    if not isinstance(memory_mb, int) or memory_mb <= 0:
+        raise LeanFailure(
+            "invalid_resource_configuration", "memory_mb must be positive"
+        )
+    runner = runtime.get("runner", "process")
+    if runner not in {"process", "worker"}:
+        raise LeanFailure("invalid_resource_configuration", "unknown checker runner")
+    if runner == "worker":
+        if (
+            type(runtime.get("worker_max_cases", 512)) is not int
+            or runtime.get("worker_max_cases", 512) <= 0
+        ):
+            raise LeanFailure(
+                "invalid_resource_configuration", "worker_max_cases must be positive"
+            )
+        from .worker import inspect_with_worker
+
+        return inspect_with_worker(
+            source, environment, runtime, mode, target, timeout, memory_mb
+        )
+    tools, project, env = execution_config(environment, runtime)
+    lean = tools / "bin" / "lean"
     with tempfile.TemporaryDirectory(prefix="corpus-check-") as temporary:
         tmp = Path(temporary)
         task = tmp / "Task.lean"
@@ -146,25 +205,11 @@ def inspect(
         ]
         if len(lines) != 1:
             raise LeanFailure("inspection_protocol_failure", log)
-        result = json.loads(lines[0])
-        # Lean can report its own finite-budget exhaustion as an elaboration
-        # diagnostic while the helper process itself exits successfully.
-        diagnostics = "\n".join(result.get("errors", [])).lower()
-        if any(
-            marker in diagnostics
-            for marker in (
-                "maximum recursion depth",
-                "maximum number of heartbeats",
-                "deterministic timeout",
-                "out of memory",
-                "stack overflow",
-            )
-        ):
-            raise LeanFailure("resource_exhaustion", log)
-        if mode == "parse" and result.get("parse_failed"):
-            raise LeanFailure("unsupported_syntax", str(result["errors"]))
-        result["log"] = log
-        return result
+        try:
+            result = json.loads(lines[0])
+        except (ValueError, TypeError) as error:
+            raise LeanFailure("inspection_protocol_failure", log) from error
+        return decode_result(result, mode, log)
 
 
 def replace_span(source, span, replacement):

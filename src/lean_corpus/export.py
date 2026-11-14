@@ -29,7 +29,12 @@ def export(
         if proof["verification_status"] in {"valid", "invalid"}:
             p = problems[proof["problem_id"]]
             env = read_json(work / "environments" / f"{p['environment_id']}.json")
-            key = cache_key(p, proof, env)
+            key = cache_key(
+                p,
+                proof,
+                env,
+                backend=runtime_for(work, p["environment_id"]).get("runner", "process"),
+            )
             cache = work / "verification-cache" / f"{key}.json"
             try:
                 validate_runtime(env, runtime_for(work, p["environment_id"]))

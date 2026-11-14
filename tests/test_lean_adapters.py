@@ -53,6 +53,10 @@ def test_verification_boundaries(real_lean):
 def test_full_response_context_shape(real_lean):
     response = "/- supplied annotation -/\n\n" + TASK.replace("by sorry", "by trivial")
     assert proof_term(response, TASK, real_lean, {}) == "by trivial"
+    documented = "/-- documentation metadata -/\n" + TASK.replace(
+        "by sorry", "by trivial"
+    )
+    assert proof_term(documented, TASK, real_lean, {}) == "by trivial"
     for prefix in ("import Lean\n", "set_option autoImplicit false\n"):
         with pytest.raises(Unsupported, match="changed"):
             proof_term(prefix + response, TASK, real_lean, {})

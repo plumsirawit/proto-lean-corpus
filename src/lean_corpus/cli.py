@@ -9,6 +9,7 @@ from .deduplicate import deduplicate
 from .export import export
 from .environment import resolve_environment
 from .normalize import normalize
+from .lean import LeanFailure
 from .verify import verify
 
 
@@ -43,6 +44,11 @@ def main(argv=None):
             )
         if name == "normalize":
             p.add_argument("--source", action="append")
+            p.add_argument(
+                "--selection",
+                type=Path,
+                help="explicit snapshot/file/row selection JSON",
+            )
         if name in {"normalize", "verify"}:
             p.add_argument("--limit", type=int)
         if name == "verify":
@@ -55,7 +61,10 @@ def main(argv=None):
             p.add_argument("--project-dir", type=Path, required=True)
             p.add_argument("--lean-path", action="append", default=[])
         if name == "runtime":
+            p.add_argument("--runner", choices=["process", "worker"], default="process")
+            p.add_argument("--worker-max-cases", type=int, default=512)
             p.add_argument("--memory-mb", type=int, default=4096)
+            p.add_argument("--parse-timeout", type=int, default=60)
             p.add_argument("--environment-id", required=True)
             p.add_argument("--project-dir", type=Path, required=True)
             p.add_argument(
@@ -67,6 +76,10 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if getattr(args, "limit", None) is not None and args.limit < 0:
         parser.error("--limit must be nonnegative")
+    if args.command == "runtime" and (
+        args.memory_mb <= 0 or args.worker_max_cases <= 0 or args.parse_timeout <= 0
+    ):
+        parser.error("memory, timeout, and worker lifetime limits must be positive")
     try:
         if args.command == "sources":
             result = registry(args.sources)
@@ -80,7 +93,9 @@ def main(argv=None):
                 args.include,
             )
         elif args.command == "normalize":
-            result = normalize(args.work_dir, args.sources, args.source, args.limit)
+            result = normalize(
+                args.work_dir, args.sources, args.source, args.limit, args.selection
+            )
         elif args.command == "deduplicate":
             result = deduplicate(args.work_dir)
         elif args.command == "verify":
@@ -98,6 +113,9 @@ def main(argv=None):
                 "project_dir": str(args.project_dir.resolve()),
                 "lean_path": args.lean_path,
                 "memory_mb": args.memory_mb,
+                "parse_timeout": args.parse_timeout,
+                "runner": args.runner,
+                "worker_max_cases": args.worker_max_cases,
             }
             write_json(
                 args.work_dir / "runtimes" / f"{args.environment_id}.json", result
@@ -108,6 +126,7 @@ def main(argv=None):
         OSError,
         RuntimeError,
         subprocess.SubprocessError,
+        LeanFailure,
     ) as e:
         print(f"lean-corpus: {e}", file=sys.stderr)
         return 1

@@ -39,19 +39,38 @@ partial def syntaxShape (s : Syntax) (bodies : Array Syntax) : Json :=
 
 -- Use the recorded project's imports and command elaboration to extend its parser.
 -- This supports local notation/macros; commands with errors are never hidden.
-unsafe def main (args : List String) : IO UInt32 := do
-  let path := args[0]!
-  let mode := args[1]!
-  initSearchPath (← findSysroot)
-  enableInitializersExecution
-  let input ← IO.FS.readFile path
+partial def requiresProcess (s : Syntax) : Bool :=
+  (s.isAtom && ["initialize", "builtin_initialize", "run_cmd", "#eval", "#reduce", "unsafe", "run_tac", "run_elab", "native_decide", "elab", "elab_rules", "macro", "macro_rules", "syntax", "attribute", "init", "implemented_by"].contains s.getAtomVal) ||
+  s.getArgs.any requiresProcess
+
+abbrev ImportCache := IO.Ref (Option (String × Environment))
+
+unsafe def inspectInput (input path mode target : String) (cache : ImportCache) (worker : Bool) : IO Json := do
   let ictx := Parser.mkInputContext input path
   let (header, ps, msgs) ← Parser.parseHeader ictx
-  let (env0, importMsgs) ← processHeader header {} msgs ictx (leakEnv := true)
-  let env ← if importMsgs.hasErrors && mode == "parse" then importModules #[{module := `Lean}] {} else pure env0
+  let importKey := Json.compress (toJson ((headerToImports header).map fun i => (i.module.toString, i.runtimeOnly)))
+  let cached ← cache.get
+  if worker then
+    if let some (key, _) := cached then
+      if key != importKey then throw (IO.Error.userError "CORPUS_RESTART:import_header_changed")
+  let (env0, importMsgs) ← match cached with
+    | some (key, env) =>
+      if key == importKey then pure (env, msgs)
+      else do
+        enableInitializersExecution
+        processHeader header {} msgs ictx (leakEnv := true)
+    | none => do
+      enableInitializersExecution
+      processHeader header {} msgs ictx (leakEnv := true)
+  if !importMsgs.hasErrors then cache.set (some (importKey, env0))
+  if worker && importMsgs.hasErrors then
+    throw (IO.Error.userError "CORPUS_FALLBACK:imports_unavailable")
+  let env ← if importMsgs.hasErrors && mode == "parse" then do
+    enableInitializersExecution
+    importModules (leakEnv := true) #[{module := `Lean}] {}
+    else pure env0
   if importMsgs.hasErrors && mode != "parse" then
-    IO.println (Json.compress (Json.mkObj [("error", toJson "imports unavailable")]))
-    return 2
+    throw (IO.Error.userError "imports unavailable")
   let action : Frontend.FrontendM (Array Json) := do
     let mut rows := #[]
     let mut done_ := false
@@ -65,6 +84,8 @@ unsafe def main (args : List String) : IO UInt32 := do
         Frontend.setMessages (before.messages ++ parseMsgs)
         Frontend.setParserState { ps0 with recovering := true }
         return rows
+      if worker && requiresProcess cmd0 then
+        throw (IO.Error.userError "CORPUS_FALLBACK:metaprogramming_or_explicit_initialization")
       Frontend.setParserState ps0
       let mut commandForElab := cmd0
       if mode == "parse" && !(proofBodies cmd0).isEmpty then
@@ -101,7 +122,7 @@ unsafe def main (args : List String) : IO UInt32 := do
     let bodies := st.commands.foldl (fun acc cmd => acc ++ proofBodies cmd) #[]
     result := result ++ [("task_skeleton", Json.arr #[syntaxShape header #[], Json.arr (st.commands.map (syntaxShape · bodies))])]
   if mode == "verify" then
-    let name := args[2]!.toName
+    let name := target.toName
     let localNames := st.commandState.env.constants.foldStage2 (fun names n _ => names.push n) (#[] : Array Name)
     let mut supportingAdmissions : Array String := #[]
     for n in localNames do
@@ -118,5 +139,49 @@ unsafe def main (args : List String) : IO UInt32 := do
         {fileName := path, fileMap := ictx.fileMap} {env := st.commandState.env}
       result := result ++ [("axioms", toJson (axs.map Name.toString)),
         ("type", toJson (toString ci.type)), ("is_theorem", toJson (match ci with | .thmInfo _ => true | _ => false))]
-  IO.println ("CORPUS_JSON:" ++ Json.compress (Json.mkObj result))
-  return 0
+  return Json.mkObj result
+
+
+def emitWorker (value : Json) : IO Unit := do
+  let stdout ← IO.getStdout
+  stdout.putStrLn ("CORPUS_WORKER:" ++ value.compress)
+  stdout.flush
+
+def residentKiB : IO Nat := do
+  try
+    let status ← IO.FS.readFile "/proc/self/status"
+    for line in status.splitOn "\n" do
+      if line.startsWith "VmRSS:" then
+        return ((line.drop 6).trim.splitOn " ").head!.toNat?.getD 0
+    return 0
+  catch _ => return 0
+
+unsafe def main (args : List String) : IO UInt32 := do
+  initSearchPath (← findSysroot)
+  let cache : ImportCache ← IO.mkRef none
+  if args.head? == some "corpus-worker" then
+    emitWorker (Json.mkObj [("event", toJson "ready")])
+    let stdin ← IO.getStdin
+    repeat
+      let line ← stdin.getLine
+      if line.isEmpty then break
+      let .ok request := Json.parse line | throw (IO.Error.userError "invalid worker JSON")
+      let .ok requestId := request.getObjValAs? Nat "id" | throw (IO.Error.userError "missing worker id")
+      let .ok input := request.getObjValAs? String "source" | throw (IO.Error.userError "missing source")
+      let .ok mode := request.getObjValAs? String "mode" | throw (IO.Error.userError "missing mode")
+      let .ok target := request.getObjValAs? String "target" | throw (IO.Error.userError "missing target")
+      emitWorker (Json.mkObj [("event", toJson "started"), ("id", toJson requestId)])
+      try
+        let result ← inspectInput input "/tmp/Task.lean" mode target cache true
+        emitWorker (Json.mkObj [("event", toJson "result"), ("id", toJson requestId), ("result", result), ("rss_kib", toJson (← residentKiB))])
+      catch error =>
+        let message := error.toString
+        let event := if message.startsWith "CORPUS_RESTART:" then "restart" else if message.startsWith "CORPUS_FALLBACK:" then "fallback" else "error"
+        emitWorker (Json.mkObj [("event", toJson event), ("id", toJson requestId), ("message", toJson message)])
+        if event == "error" then return (1 : UInt32)
+    return 0
+  else
+    let input ← IO.FS.readFile args[0]!
+    let result ← inspectInput input args[0]! args[1]! args[2]! cache false
+    IO.println ("CORPUS_JSON:" ++ result.compress)
+    return 0

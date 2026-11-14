@@ -11,6 +11,27 @@ class Unsupported(ValueError):
     pass
 
 
+def comparable_shape(shape):
+    """Ignore only parsed declaration doc metadata, never source text or code."""
+    if not isinstance(shape, list):
+        return shape
+    if len(shape) == 3 and shape[0] == "node":
+        return [
+            shape[0],
+            shape[1],
+            [
+                comparable_shape(child)
+                for child in shape[2]
+                if not (
+                    isinstance(child, list)
+                    and len(child) == 3
+                    and child[:2] == ["node", "Lean.Parser.Command.docComment"]
+                )
+            ],
+        ]
+    return [comparable_shape(child) for child in shape]
+
+
 def rows(path):
     suffix = path.suffix.lower()
     if suffix == ".parquet":
@@ -63,6 +84,11 @@ def statement(value, env, runtime):
             "Completed supplied empty target proof with canonical placeholder"
         )
     parsed = inspect(source, env, runtime)
+    if env.get("resolved") and not parsed["imports_resolved"]:
+        raise LeanFailure(
+            "imports_unavailable",
+            "task imports unavailable in the recorded resolved environment",
+        )
     if len(parsed["targets"]) != 1:
         if len(parsed["targets"]) > 1 and parsed["admissions"] > 1:
             raise Unsupported(
@@ -86,7 +112,14 @@ def statement(value, env, runtime):
         skeleton = parsed.get("task_skeleton")
     else:
         target_info(task, env, runtime)
-    return task, target["name"], original, transformations, skeleton
+    return (
+        task,
+        target["name"],
+        original,
+        transformations,
+        skeleton,
+        parsed["imports_resolved"],
+    )
 
 
 def code_block(response):
@@ -120,10 +153,9 @@ def proof_term(value, task, env, runtime, response=False, task_skeleton=None):
         fixed_skeleton = task_skeleton
         if fixed_skeleton is None:
             fixed_skeleton = inspect(task, env, runtime).get("task_skeleton")
-        if (
-            parsed.get("task_skeleton") is None
-            or parsed["task_skeleton"] != fixed_skeleton
-        ):
+        if parsed.get("task_skeleton") is None or comparable_shape(
+            parsed["task_skeleton"]
+        ) != comparable_shape(fixed_skeleton):
             raise Unsupported(
                 "full-theorem response changed target statement or context"
             )
@@ -131,7 +163,7 @@ def proof_term(value, task, env, runtime, response=False, task_skeleton=None):
 
 
 def base(row, env, runtime, formal=None, informal=None):
-    task, name, original, transforms, skeleton = statement(
+    task, name, original, transforms, skeleton, imports_resolved = statement(
         formal or row.get("formal_statement"), env, runtime
     )
     return {
@@ -144,6 +176,7 @@ def base(row, env, runtime, formal=None, informal=None):
         "reports": [],
         "transformations": transforms,
         "_task_skeleton": skeleton,
+        "_parser_imports_resolved": imports_resolved,
     }, original
 
 
@@ -172,7 +205,13 @@ def add(result, value, field, env, runtime, response=False, explanation=None):
                 "field": field,
             }
         )
-    except (Unsupported, ValueError, LeanFailure) as e:
+    except LeanFailure as e:
+        if e.reason != "unsupported_syntax":
+            raise
+        result["reports"].append(
+            {"field": field, "reason": str(e), "kind": "unsupported"}
+        )
+    except (Unsupported, ValueError) as e:
         result["reports"].append(
             {"field": field, "reason": str(e), "kind": "unsupported"}
         )

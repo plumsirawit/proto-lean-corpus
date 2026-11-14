@@ -54,10 +54,11 @@ def sandbox(spec):
     (root / "proc").mkdir(exist_ok=True)
     mount("proc", str(root / "proc"), "proc", flags=2 | 4 | 8)
     (root / "tmp").mkdir(exist_ok=True)
-    source = Path(spec["command"][-3]).read_text()
-    (root / "tmp" / "Task.lean").write_text(source)
     command = spec["command"][:]
-    command[-3] = "/tmp/Task.lean"
+    if not spec.get("worker", False):
+        source = Path(command[-3]).read_text()
+        (root / "tmp" / "Task.lean").write_text(source)
+        command[-3] = "/tmp/Task.lean"
     os.chroot(root)
     os.chdir(spec["cwd"])
     os.execve(command[0], command, spec["env"])

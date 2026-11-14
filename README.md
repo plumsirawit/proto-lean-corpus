@@ -74,3 +74,50 @@ Stages replace their outputs on rerun rather than appending. Snapshots are immut
 No full corpus run, paid compute, bucket mutation, model inference, synthetic proof generation, or dataset publication is part of the fixture implementation. Correspondence between formal tasks and informal mathematics remains outside the automated checks.
 
 Actual local test results and integration limits are recorded in [docs/validation.md](docs/validation.md).
+
+## Long local runs and extraction recovery
+
+Normalization stops on checker timeouts, unavailable imports in a resolved environment,
+resource exhaustion, sandbox failures, or corrupt extraction caches. It leaves
+`normalization-incomplete.json`; deduplication, verification, and export refuse that
+workspace until normalization completes successfully. Unsupported input syntax is
+reported separately. Completed extractions in resolved environments are cached by
+snapshot, original file hash, row, environment, and processing implementation. A
+rerun resumes completed records and replaces stage tables without appending rows.
+Changing processing code invalidates extraction caches; changing code during a
+normalization run aborts the stage.
+
+The default checker starts a separate isolated Lean process for each inspection.
+For prepared, pinned projects, an optional sequential worker reduces repeated import
+costs:
+
+```sh
+uv run lean-corpus runtime --work-dir .work/corpus \
+  --environment-id environment-v1-SHA256 --project-dir /path/to/pinned-project \
+  --lean-path .lake/build/lib --memory-mb 8192 \
+  --runner worker --worker-max-cases 128
+```
+
+Repeat `--lean-path` for required dependencies. Each worker remains inside the same
+read-only filesystem and network isolation as the process checker, has finite
+memory/CPU/output limits, and is replaced after the configured number of checks.
+Each request starts with fresh command state; only an exact matching imported
+environment is reused. Changed imports restart the worker. Explicit initialization
+and metaprogramming commands fall back to separate processes. Per-request wall
+limits terminate stalled workers; operational failures never count as valid proofs.
+Workers assume the pinned imported Lean extensions are trusted and compatible with
+reuse; use the default process backend when independent process state is required.
+Backend changes invalidate verification caches.
+
+For representative pilots, `normalize --selection /path/to/selection.json` selects
+original row indices without rewriting the raw payload or renumbering provenance.
+Use this instead of `--limit`:
+
+```json
+{"schema_version":"1","snapshots":{"source-v1-SHA256":{"data/train.parquet":[0,40,6897]}}}
+```
+
+Rows must be unique nonnegative integers, and every requested row must exist in a
+selected acquired snapshot. Missing rows fail the stage. The exact selection is
+recorded in the extraction report. For slow hosts, `runtime --parse-timeout 180`
+sets the finite extraction deadline; verification has its separate `--timeout`.

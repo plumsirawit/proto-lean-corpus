@@ -12,8 +12,8 @@ def merge(tables):
             grouped[row["id"]].append(row)
         merged = []
         for row_id, values in sorted(grouped.items()):
-            # Lexicographically smallest (source_id, location, upstream_id) wins
-            # nullable metadata; null never outranks a present value.
+            # Canonical reference serialization defines deterministic precedence.
+            # Null metadata never outranks a present value.
             ordered = sorted(values, key=lambda r: canonical(r.get("source_refs", [])))
             row = dict(ordered[0])
             if name != "provenance":
@@ -51,8 +51,16 @@ def merge(tables):
     }
 
 
+def require_normalized_complete(work):
+    if (Path(work) / "normalization-incomplete.json").exists():
+        raise ValueError(
+            "normalization incomplete or failed: rerun normalize before downstream stages"
+        )
+
+
 def deduplicate(work):
     work = Path(work)
+    require_normalized_complete(work)
     tables, report = merge(read_tables(work / "normalized"))
     write_tables(work / "canonical", tables)
     write_json(
@@ -64,6 +72,7 @@ def deduplicate(work):
 
 def require_current(work):
     work = Path(work)
+    require_normalized_complete(work)
     if read_json(work / "normalized" / "state.json") != read_json(
         work / "canonical" / "state.json"
     ):
