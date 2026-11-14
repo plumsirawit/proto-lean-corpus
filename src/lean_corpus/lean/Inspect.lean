@@ -15,6 +15,17 @@ partial def theoremNodes (s : Syntax) : Array Syntax :=
 
 def span (s : Syntax) : Json := Json.arr #[toJson (s.getPos?.getD 0).byteIdx, toJson (s.getTailPos?.getD 0).byteIdx]
 
+-- Compare parsed structure, preserving names, command order and layout-derived
+-- syntax. Source positions/trivia are absent; the canonical task text is unchanged.
+partial def syntaxShape (s : Syntax) (bodies : Array Syntax) : Json :=
+  if bodies.any (fun b => s.getKind == b.getKind && s.getPos? == b.getPos? && s.getTailPos? == b.getTailPos?) then
+    Json.str "$TARGET_PROOF"
+  else match s with
+    | .missing => Json.str "$MISSING"
+    | .atom _ value => Json.arr #[Json.str "atom", Json.str value]
+    | .ident _ _ value _ => Json.arr #[Json.str "ident", Json.str value.toString]
+    | .node _ kind args => Json.arr #[Json.str "node", Json.str kind.toString, Json.arr (args.map (syntaxShape · bodies))]
+
 -- Use the recorded project's imports and command elaboration to extend its parser.
 -- This supports local notation/macros; commands with errors are never hidden.
 def main (args : List String) : IO UInt32 := do
@@ -67,6 +78,12 @@ def main (args : List String) : IO UInt32 := do
   let mut result := [("targets", Json.arr rows), ("errors", toJson errors),
     ("admissions", toJson (st.commands.foldl (fun n c => n + admissions c) 0)),
     ("imports_resolved", toJson (!importMsgs.hasErrors)), ("parse_failed", toJson st.parserState.recovering)]
+  if mode == "parse" then
+    let bodies := st.commands.foldl (fun acc cmd =>
+      acc ++ (theoremNodes cmd).foldl (fun acc thm =>
+        let vals := nodes thm ``Parser.Command.declValSimple
+        if vals.size == 1 then acc.push vals[0]![1] else acc) #[]) #[]
+    result := result ++ [("task_skeleton", Json.arr #[syntaxShape header #[], Json.arr (st.commands.map (syntaxShape · bodies))])]
   if mode == "verify" then
     let name := args[2]!.toName
     let localNames := st.commandState.env.constants.foldStage2 (fun names n _ => names.push n) (#[] : Array Name)

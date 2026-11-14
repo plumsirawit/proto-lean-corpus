@@ -16,7 +16,7 @@ All adapters retain supported attempts as `unverified`, including `sorry` attemp
 
 Library context reconstruction uses preceding source, not imports of the target's own module. This deliberately retains earlier proofs and may be larger than a minimal context. A preceding incomplete theorem makes later tasks unsupported rather than introducing hidden admissions. Syntax beyond the imported parser's capabilities, ambiguous mutual/anonymous declarations, nonstandard generated theorem commands and unsupported versioned helper APIs require a later adapter extension. Processing never silently rewrites a project to a new Lean version.
 
-A full-theorem response must currently match the original task's surrounding source exactly (apart from outer transport whitespace). This rejects some otherwise equivalent source renderings, extra comments and reordered imports. Such rejections are visible, and the originals remain acquired; no relaxed semantic-equivalence procedure is claimed.
+A full-theorem response must match the original task's parsed Lean structure, with only the target proof body masked. Imports, options, declaration order, target names and types remain part of the comparison. Parser trivia and harmless formatting may differ; layout-derived syntax must still match. Canonical task text and content fingerprints are unchanged. This is a syntactic comparison, not a semantic-equivalence procedure.
 
 Official references inspected during implementation:
 

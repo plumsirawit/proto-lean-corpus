@@ -55,6 +55,7 @@ def main(argv=None):
             p.add_argument("--project-dir", type=Path, required=True)
             p.add_argument("--lean-path", action="append", default=[])
         if name == "runtime":
+            p.add_argument("--memory-mb", type=int, default=4096)
             p.add_argument("--environment-id", required=True)
             p.add_argument("--project-dir", type=Path, required=True)
             p.add_argument(
@@ -96,6 +97,7 @@ def main(argv=None):
             result = {
                 "project_dir": str(args.project_dir.resolve()),
                 "lean_path": args.lean_path,
+                "memory_mb": args.memory_mb,
             }
             write_json(
                 args.work_dir / "runtimes" / f"{args.environment_id}.json", result

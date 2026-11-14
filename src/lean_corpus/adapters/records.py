@@ -109,7 +109,13 @@ def proof_term(value, task, env, runtime, response=False):
     body = slice_span(value, target["body"])
     candidate = replace_span(value, target["body"], "by sorry")
     if candidate.strip() != task.strip():
-        raise Unsupported("full-theorem response changed target statement or context")
+        fixed = inspect(task, env, runtime)
+        if parsed.get("task_skeleton") is None or parsed["task_skeleton"] != fixed.get(
+            "task_skeleton"
+        ):
+            raise Unsupported(
+                "full-theorem response changed target statement or context"
+            )
     return body
 
 

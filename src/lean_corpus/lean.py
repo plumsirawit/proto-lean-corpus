@@ -37,6 +37,11 @@ def inspect(
     memory_mb=4096,
 ):
     runtime = runtime or {}
+    memory_mb = runtime.get("memory_mb", memory_mb)
+    if not isinstance(memory_mb, int) or memory_mb <= 0:
+        raise LeanFailure(
+            "invalid_resource_configuration", "memory_mb must be positive"
+        )
     toolchain = environment.get("toolchain") or "leanprover/lean4:v4.19.0"
     # Resolve only installed toolchains. Never invoke elan's implicit downloader.
     tools = (
