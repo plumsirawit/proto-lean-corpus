@@ -310,6 +310,23 @@ def lean_workbook(row, env, runtime):
             env,
             runtime,
         )
+    # The JSON representation supplies a list of tactic scripts in `proof`.
+    # Every entry is an independent attempt, regardless of upstream success hints.
+    supplied = row.get("proof")
+    if supplied is not None:
+        if not isinstance(supplied, list):
+            result["reports"].append(
+                {
+                    "field": "proof",
+                    "reason": "unsupported proof list shape",
+                    "kind": "unsupported",
+                }
+            )
+        else:
+            for i, value in enumerate(supplied):
+                if nonempty(value) and not re.match(r"by(?:\s|$)", value.lstrip()):
+                    value = "by\n  " + value.replace("\n", "\n  ")
+                add(result, value, f"proof/{i}", env, runtime)
     return result
 
 

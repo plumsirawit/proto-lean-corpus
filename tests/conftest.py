@@ -7,7 +7,9 @@ from lean_corpus.lean import inspect, LeanFailure
 def core_env():
     return {
         "schema_version": "1",
-        "toolchain": "leanprover/lean4:v4.19.0",
+        "toolchain": os.environ.get(
+            "LEAN_CORPUS_TEST_TOOLCHAIN", "leanprover/lean4:v4.19.0"
+        ),
         "packages": [],
         "build_config": {},
         "resolved": True,

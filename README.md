@@ -117,7 +117,9 @@ Use this instead of `--limit`:
 {"schema_version":"1","snapshots":{"source-v1-SHA256":{"data/train.parquet":[0,40,6897]}}}
 ```
 
-Rows must be unique nonnegative integers, and every requested row must exist in a
+Rows must be unique nonnegative integers or nonempty string keys. JSON object keys,
+split-array keys such as `train/0`, and Lean keys such as `declaration=example`
+retain their original spelling. Every requested row must exist in a
 selected acquired snapshot. Missing rows fail the stage. The exact selection is
 recorded in the extraction report. For slow hosts, `runtime --parse-timeout 180`
 sets the finite extraction deadline; verification has its separate `--timeout`.

@@ -106,3 +106,32 @@ version. It requires matching source/revision/row-count metadata and current
 normalized/canonical stage state, and rejects changed pilot selections. Original
 normalization provenance is retained in the resumed run state. Both modes keep
 inputs, caches, checkpoints and exports local and perform no dataset publication.
+
+For bounded multi-source pilots, `scripts/euler_pilot.sbatch` accepts only
+`goedel_pset_v1`, `lean_workbook`, or `putnam_bench` through `LC_SOURCE`, and only
+10, 100, or 1000 occurrences through `LC_PILOT_SIZE`. It uses the same `LC_REPO`,
+`LC_STAGE`, `LC_CODE_REVISION`, and checksummed input/project/toolchain archive
+settings. Toolchain archives contain a `toolchains/` directory; the input archive
+contains a workspace named after the source key. Prepare all downloads and built
+dependencies before submission: compute nodes may have no outbound network.
+
+Record-source workspaces carry `selection-10.json`, `selection-100.json`, and
+`selection-1000.json` manifests with nested selections of original rows. The
+Putnam Lean-project pilot uses deterministic source order and a bounded limit; a
+1000-occurrence pilot can exhaust a smaller snapshot, which is explicitly
+recorded rather than duplicating tasks. Run each size for all sources and inspect
+the results before submitting the next size. No full run follows automatically.
+
+The pilot driver checks the real Mathlib/kernel environment, repeats normalization
+byte-for-byte, verifies, exports locally, and records every non-valid proof,
+invalid/inconclusive statement, and extraction diagnostic in `failures.json`.
+Operational checking failures stop the pilot gate. Each job saves its workspace,
+checksum, and completion metadata even when the driver fails. Use only metadata
+with `complete=true` and `runner_exit=0` to advance. Each per-process checker uses
+one Lean thread, matching the worker backend and avoiding host-wide thread pools
+under a finite address-space limit.
+
+For targeted compatibility tests, `LEAN_CORPUS_TEST_TOOLCHAIN` overrides the core
+test fixture's default Lean 4.19 toolchain. Supply an installed toolchain and run
+the relevant core/adapter tests; this does not install tools or rewrite source
+environment manifests.

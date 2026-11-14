@@ -164,3 +164,50 @@ def test_bounded_hf_acquisition_preserves_notices(monkeypatch, tmp_path):
     assert manifest["revision"] == commit
     assert "legal/license.txt" in manifest["license_paths"]
     assert "AUTHORS" in manifest["license_paths"]
+
+
+@pytest.mark.lean
+def test_keyed_workbook_selection_retains_and_checks_proof_list(real_lean, tmp_path):
+    from lean_corpus.common import write_json
+
+    local = tmp_path / "source"
+    local.mkdir()
+    write_json(
+        local / "keyed.json",
+        {
+            "chosen": {
+                "id": "example",
+                "formal_statement": "theorem keyed_target : True := by sorry",
+                "proof": ["trivial", "by sorry", "exact True.intro", 17, ""],
+            },
+            "excluded": {"formal_statement": "malformed excluded record"},
+        },
+    )
+    (local / "lean-toolchain").write_text(real_lean["toolchain"])
+    work = tmp_path / "work"
+    sid = acquire(work, REGISTRY, "lean_workbook", local)
+    eid = check_snapshot(work / "snapshots" / sid)["environment_id"]
+    write_json(work / "runtimes" / f"{eid}.json", {"project_dir": str(local)})
+    selection = tmp_path / "selection.json"
+    write_json(
+        selection,
+        {"schema_version": "1", "snapshots": {sid: {"keyed.json": ["chosen"]}}},
+    )
+    assert normalize(work, REGISTRY, selection=selection) == {
+        "problems": 1,
+        "proofs": 3,
+        "reports": 1,
+    }
+    tables = read_tables(work / "normalized")
+    assert {p["source_refs"][0]["location"] for p in tables["proofs"]} == {
+        f"keyed.json#row=chosen&field=proof/{i}" for i in range(3)
+    }
+    report = read_json(work / "reports/extraction.json")
+    assert report["reports"][0]["location"] == "keyed.json#row=chosen&field=proof/3"
+    deduplicate(work)
+    assert verify(work) == {
+        "unverified": 0,
+        "valid": 2,
+        "invalid": 1,
+        "inconclusive": 0,
+    }

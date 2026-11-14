@@ -143,7 +143,15 @@ def inspect(
             ],
             "write": temporary,
             "cwd": str(project),
-            "command": [str(lean), "--run", str(HELPER), str(task), mode, target],
+            "command": [
+                str(lean),
+                "-j1",
+                "--run",
+                str(HELPER),
+                str(task),
+                mode,
+                target,
+            ],
             "env": env,
         }
         command = [
@@ -197,7 +205,7 @@ def inspect(
                 if process.returncode < 0 or "memory" in log.lower()
                 else "parser_or_import_failure"
             )
-            raise LeanFailure(reason, log)
+            raise LeanFailure(reason, f"checker exit code {process.returncode}\n" + log)
         lines = [
             line[len("CORPUS_JSON:") :]
             for line in log.splitlines()

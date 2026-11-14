@@ -1,6 +1,36 @@
 import Lean
 open Lean Lean.Elab
 
+-- Lean 4.8 predates Lean.collectAxioms. This compatibility traversal follows
+-- Lean's Apache-2.0 CollectAxioms implementation (Microsoft, Leonardo de Moura).
+-- Later versions use the standard collector, including its checked kernel env.
+structure CorpusAxiomState where
+  visited : NameSet := {}
+  axioms : Array Name := #[]
+
+partial def corpusCollectLegacy (name : Name) : ReaderT Environment (StateM CorpusAxiomState) Unit := do
+  unless (← get).visited.contains name do
+    modify fun s => {s with visited := s.visited.insert name}
+    let collectExpr (e : Expr) := e.getUsedConstants.forM corpusCollectLegacy
+    match (← read).find? name with
+    | some (.axiomInfo _) => modify fun s => {s with axioms := s.axioms.push name}
+    | some (.defnInfo v) => collectExpr v.type *> collectExpr v.value
+    | some (.thmInfo v) => collectExpr v.type *> collectExpr v.value
+    | some (.opaqueInfo v) => collectExpr v.type *> collectExpr v.value
+    | some (.ctorInfo v) => collectExpr v.type
+    | some (.recInfo v) => collectExpr v.type
+    | some (.inductInfo v) => collectExpr v.type *> v.ctors.forM corpusCollectLegacy
+    | _ => pure ()
+
+def corpusLegacyAxioms (name : Name) : CoreM (Array Name) := do
+  let (_, state) := ((corpusCollectLegacy name).run (← getEnv)).run {}
+  return state.axioms
+
+elab "corpusAxiomCollector" : term => do
+  let name := if (← getEnv).contains `Lean.collectAxioms then
+    `Lean.collectAxioms else `corpusLegacyAxioms
+  Lean.Elab.Term.elabTerm (mkIdent name) none
+
 partial def nodes (s : Syntax) (kind : Name) : Array Syntax :=
   (if s.getKind == kind then #[s] else #[]) ++ s.getArgs.foldl (fun a x => a ++ nodes x kind) #[]
 
@@ -48,7 +78,7 @@ abbrev ImportCache := IO.Ref (Option (String × Environment))
 unsafe def inspectInput (input path mode target : String) (cache : ImportCache) (worker : Bool) : IO Json := do
   let ictx := Parser.mkInputContext input path
   let (header, ps, msgs) ← Parser.parseHeader ictx
-  let importKey := Json.compress (toJson ((headerToImports header).map fun i => (i.module.toString, i.runtimeOnly)))
+  let importKey := (syntaxShape header #[]).compress
   let cached ← cache.get
   if worker then
     if let some (key, _) := cached then
@@ -98,7 +128,7 @@ unsafe def inspectInput (input path mode target : String) (cache : ImportCache) 
       modify fun s => {s with commands := s.commands.push cmd0}
       done_ := Parser.isTerminalCommand cmd0
       let st ← get
-      let cmd := st.commands.back!
+      let cmd := st.commands[st.commands.size - 1]!
       for thm in theoremNodes cmd do
         let vals := nodes thm ``Parser.Command.declValSimple
         if vals.size == 1 then
@@ -127,7 +157,7 @@ unsafe def inspectInput (input path mode target : String) (cache : ImportCache) 
     let mut supportingAdmissions : Array String := #[]
     for n in localNames do
       if n != name && !env.contains n then
-        let (deps, _) ← (Lean.collectAxioms n : CoreM (Array Name)).toIO
+        let (deps, _) ← (corpusAxiomCollector n : CoreM (Array Name)).toIO
           {fileName := path, fileMap := ictx.fileMap} {env := st.commandState.env}
         if deps.contains `sorryAx then
           supportingAdmissions := supportingAdmissions.push n.toString
@@ -135,7 +165,7 @@ unsafe def inspectInput (input path mode target : String) (cache : ImportCache) 
     match st.commandState.env.find? name with
     | none => result := result ++ [("target_missing", toJson true)]
     | some ci =>
-      let (axs, _) ← (Lean.collectAxioms name : CoreM (Array Name)).toIO
+      let (axs, _) ← (corpusAxiomCollector name : CoreM (Array Name)).toIO
         {fileName := path, fileMap := ictx.fileMap} {env := st.commandState.env}
       result := result ++ [("axioms", toJson (axs.map Name.toString)),
         ("type", toJson (toString ci.type)), ("is_theorem", toJson (match ci with | .thmInfo _ => true | _ => false))]
@@ -152,7 +182,8 @@ def memoryKiB (field : String) : IO Nat := do
     let status ← IO.FS.readFile "/proc/self/status"
     for line in status.splitOn "\n" do
       if line.startsWith (field ++ ":") then
-        return ((line.drop (field.length + 1)).trim.splitOn " ").head!.toNat?.getD 0
+        let fields : List String := ((line.replace "\t" " ").splitOn " ").filter (fun s => !s.isEmpty)
+        return ((fields.drop 1).head?.getD "").toNat?.getD 0
     return 0
   catch _ => return 0
 

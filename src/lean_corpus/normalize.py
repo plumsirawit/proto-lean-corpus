@@ -67,11 +67,17 @@ def _normalize(work, sources, selected, limit, progress, selection):
             for name, indices in files.items():
                 if (
                     not isinstance(indices, list)
-                    or any(type(i) is not int or i < 0 for i in indices)
+                    or any(
+                        not (
+                            (type(i) is int and i >= 0)
+                            or (isinstance(i, str) and bool(i.strip()))
+                        )
+                        for i in indices
+                    )
                     or len(set(indices)) != len(indices)
                 ):
                     raise ValueError(
-                        "selection rows must be unique nonnegative integers"
+                        "selection rows must be unique nonnegative integers or nonempty keys"
                     )
                 requested.update((sid, name, i) for i in indices)
         if not requested:
