@@ -5,6 +5,7 @@ import csv
 import io
 from pathlib import Path
 import subprocess
+import time
 
 
 def check(path, reserve_bytes=0, reserve_files=0, fraction=0.8):
@@ -15,9 +16,16 @@ def check(path, reserve_bytes=0, reserve_files=0, fraction=0.8):
     target = Path(path).resolve()
     # Query the destination filesystem; unrelated home quota RPC failures must not
     # block a scratch checkpoint. Any failure for this destination still aborts.
-    output = subprocess.check_output(
-        ["lquota", "-b", "-P", str(target)], text=True, timeout=30
-    )
+    for attempt in range(3):
+        try:
+            output = subprocess.check_output(
+                ["lquota", "-b", "-P", str(target)], text=True, timeout=30
+            )
+            break
+        except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
+            if attempt == 2:
+                raise
+            time.sleep(attempt + 1)
     rows = list(csv.DictReader(io.StringIO(output), delimiter="|"))
     matching = [
         r for r in rows if target.is_relative_to(Path(r["Storage location"].strip()))
