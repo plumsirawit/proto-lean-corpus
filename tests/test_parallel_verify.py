@@ -13,6 +13,17 @@ from lean_corpus.verify import verify
 from lean_corpus.worker import close_all
 
 
+def semantic_report(value):
+    # Raw worker logs include request sequence numbers and measured RSS. These
+    # legitimately change with scheduling; every structured Lean result and
+    # diagnostic must still agree. Raw logs remain intact in reports/caches.
+    if isinstance(value, dict):
+        return {k: semantic_report(v) for k, v in value.items() if k != "log"}
+    if isinstance(value, list):
+        return [semantic_report(v) for v in value]
+    return value
+
+
 @pytest.mark.lean
 @pytest.mark.parametrize("runner", ["process", "worker"])
 def test_parallel_matches_serial_and_resumes(real_lean, tmp_path, monkeypatch, runner):
@@ -37,9 +48,9 @@ def test_parallel_matches_serial_and_resumes(real_lean, tmp_path, monkeypatch, r
     close_all()
     assert verify_parallel(parallel, workers=2) == expected
     assert read_tables(parallel / "canonical") == read_tables(work / "canonical")
-    assert read_json(parallel / "reports/verification.json") == read_json(
-        work / "reports/verification.json"
-    )
+    assert semantic_report(
+        read_json(parallel / "reports/verification.json")
+    ) == semantic_report(read_json(work / "reports/verification.json"))
     caches = {
         str(p.relative_to(parallel)): p.read_bytes()
         for name in ("statement-cache", "verification-cache")
