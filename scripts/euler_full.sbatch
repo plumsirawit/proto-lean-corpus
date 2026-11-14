@@ -72,6 +72,12 @@ trap finish EXIT
 trap 'exit 143' TERM INT USR1
 extra=()
 if [[ -n "${LC_LIMIT:-}" ]]; then extra+=(--limit "$LC_LIMIT"); fi
+if [[ -n "${LC_SELECTION_FILE:-}" ]]; then
+  [[ -z "${LC_LIMIT:-}" ]]
+  selection=$(realpath -e "$workspace/$LC_SELECTION_FILE")
+  [[ "$selection" == "$workspace/"* && -f "$selection" ]]
+  extra+=(--selection "$selection")
+fi
 "$python_bin" scripts/run_local_corpus.py --work-dir "$workspace/corpus" \
   --output-dir "$workspace/full-export-$SLURM_JOB_ID" --source numina_math_lean \
   --dataset-revision "$LC_DATASET_REVISION" --expected-input-rows "$LC_EXPECTED_ROWS" \

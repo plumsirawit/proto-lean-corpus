@@ -27,7 +27,10 @@ uv run --locked pytest -q -rs
 uv run --locked python tests/demo.py --work-dir .work/demo-new --output-dir .work/export-new
 ```
 
-The current implementation was left uncommitted for review. Exports honestly record the code revision, dirty-worktree flag and actual implementation digest. The user's implementation-plan Markdown is ignored by Git.
+At the original implementation handoff, the implementation was left uncommitted
+for review. Subsequent source-only changes were committed with user authorization.
+Exports record the code revision, dirty-worktree flag and actual implementation
+digest. The user's implementation-plan Markdown is ignored by Git.
 
 Full upstream acquisition, actual Mathlib/Tau Ceti dependency builds, per-snapshot version compatibility checks, corpus-scale memory/performance validation, and publication review remain the explicitly planned next phase. No full-corpus acquisition/run, paid compute, remote bucket mutation, or public data publication was performed. Source cards/previews and small parser definitions were inspected online; fixtures are synthetic.
 
@@ -92,3 +95,27 @@ check passed in job 20854507 (34.04 seconds), including resuming completed state
 and proof checks without kernel re-execution and refusing corrupted cache evidence.
 All 12 tests without Lean passed after the integrity-cache addition. Actual theorem
 text and proof/data artifacts are confined to ignored local directories and scratch.
+
+At source revision `63beb42`, strict GitHub CI passed all 29 tests (12 without Lean
+and 17 with real Lean, no skips). A further category-balanced 1,000-row pilot in
+Slurm job 20856149 completed processing: 931 retained statements all elaborated;
+verification reported 632 valid, 507 invalid and 27 inconclusive resource-limited
+attempts. Normalization produced 1,168 attempt occurrences before deduplication.
+Repeated normalization was byte-identical. There were 86 extraction reports,
+including unsupported supporting admissions and response contexts. These numbers
+describe format coverage, not an estimate of the full dataset's quality.
+
+The pilot finished its processing and wrote results before the job reached its
+two-hour limit during final saving. Its archive exists and is readable; final
+checksum/cleanup confirmation is a separate gate before reusing it. The pilot also
+exposed empty target slots ending in bare `:=` and whitespace after `:= by`.
+Support for those slots is undergoing a separate real-Lean regression and pilot;
+the figures above precede that fix. Truncated binders and missing supporting
+context remain unsupported rather than being repaired speculatively.
+
+The quota-aware batch controller completed cold, completed-cache resume and
+interrupted-checkpoint resume smoke runs (jobs 20860611, 20861141 and 20862289).
+Each produced eight valid proofs from the first ten input rows. The completed-cache
+resume executed only the synthetic runtime probe; corpus checks reused validated
+cache evidence. Checkpoints and real data remain private on scratch. The controller
+and its storage/resource settings are documented in [hpc.md](hpc.md).

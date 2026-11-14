@@ -80,12 +80,32 @@ def statement(value, env, runtime):
         raise Unsupported("missing formal_statement")
     source = text(value)
     transformations = []
-    if re.search(r":=\s*by\s*$", source):
-        source += " sorry"
-        transformations.append(
-            "Completed supplied empty target proof with canonical placeholder"
-        )
+    supplied_source = source
+    slot = re.search(r"(?P<slot>:=\s*by|:=)(?P<trivia>\s*)$", source)
+    inserted_end = None
+    if slot:
+        addition = " sorry" if slot["slot"].endswith("by") else " by sorry"
+        position = slot.end("slot")
+        source = source[:position] + addition + source[position:]
+        inserted_end = len(source[: position + len(addition)].encode())
     parsed = inspect(source, env, runtime)
+    if inserted_end is not None:
+        # Only complete the target's entire empty proof slot. A trailing comment,
+        # binder initializer, or nested let must not become a fabricated proof.
+        targets = parsed["targets"]
+        completed_target = (
+            len(targets) == 1
+            and "body" in targets[0]
+            and targets[0]["body"][0] < inserted_end <= targets[0]["body"][1]
+            and slice_span(source, targets[0]["body"]) == "by sorry"
+        )
+        if completed_target:
+            transformations.append(
+                "Completed supplied empty target proof with canonical placeholder"
+            )
+        else:
+            source = supplied_source
+            parsed = inspect(source, env, runtime)
     if env.get("resolved") and not parsed["imports_resolved"]:
         raise LeanFailure(
             "imports_unavailable",

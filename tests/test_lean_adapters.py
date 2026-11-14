@@ -5,12 +5,39 @@ from lean_corpus.adapters.records import (
     Unsupported,
     code_block,
     proof_term,
+    statement,
 )
-from lean_corpus.lean import target_info
+from lean_corpus.lean import LeanFailure, target_info
 from lean_corpus.verify import cache_key, check_problem, check_proof
 
 pytestmark = pytest.mark.lean
 TASK = "theorem t : True := by sorry"
+
+
+def test_empty_target_slots(real_lean):
+    for source, trailing in (
+        ("theorem t : True :=", ""),
+        ("theorem t : True := by\n  ", "\n  "),
+        ("theorem t : True :=\n", "\n"),
+    ):
+        task, name, proof, changes, _, _ = statement(source, real_lean, {})
+        assert task == TASK + trailing
+        assert name == "t"
+        assert proof == "by sorry"
+        assert len(changes) == 1
+    source = "theorem t : True := by trivial\n-- comment := by"
+    task, _, proof, changes, _, _ = statement(source, real_lean, {})
+    assert task == TASK + "\n-- comment := by"
+    assert proof == "by trivial"
+    assert not any(isinstance(change, str) for change in changes)
+    for source in (
+        "theorem broken (n : Nat :=",
+        "theorem t : True := by\n  let n : Nat :=",
+    ):
+        with pytest.raises((Unsupported, LeanFailure)) as error:
+            statement(source, real_lean, {})
+        if isinstance(error.value, LeanFailure):
+            assert error.value.reason == "unsupported_syntax"
 
 
 def test_structural_boundaries(real_lean):

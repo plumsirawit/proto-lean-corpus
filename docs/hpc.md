@@ -48,7 +48,10 @@ sbatch --output="$LC_STAGE/full-%j.log" scripts/euler_full.sbatch
 Start with a small smoke run by setting `LC_LIMIT=10` and `LC_EXPECTED_ROWS=10`.
 Unset `LC_LIMIT` for the full acquired dataset and set its exact original row
 count. The driver refuses a changed dataset revision or unexpected visited-row
-count. Adjust resource requests using `sbatch` options based on measured pilots;
+count. For a deterministic selected pilot, set `LC_SELECTION_FILE` to a selection
+JSON path relative to the archived workspace, unset `LC_LIMIT`, and set
+`LC_EXPECTED_ROWS` to the number of selected original rows. The selection file
+must remain inside that workspace. Adjust resource requests using `sbatch` options based on measured pilots;
 no partition is selected by the template. Defaults are one CPU, 12 GiB memory,
 40 GiB job-local storage, 24 hours, and a pre-limit signal three minutes early.
 Lean has a separate 8 GiB address-space cap and finite inspection deadlines.
