@@ -127,7 +127,7 @@ def statement(value, env, runtime):
             selected_target = parsed["targets"][0]
         elif parsed["admissions"] > 1:
             raise Unsupported(
-                "multiple target placeholders / admitted supporting lemmas; supporting context must be completed explicitly"
+                "multiple target placeholders / admitted supporting lemmas; task requires complete supporting context"
             )
         else:
             raise Unsupported("expected exactly one designated theorem target")
@@ -137,7 +137,7 @@ def statement(value, env, runtime):
     original = slice_span(source, target["body"])
     if original == "by sorry" and parsed["admissions"] != 1:
         raise Unsupported(
-            "multiple target placeholders / admitted supporting lemmas; supporting context must be completed explicitly"
+            "multiple target placeholders / admitted supporting lemmas; task requires complete supporting context"
         )
     if original != "by sorry":
         transformations.append(
