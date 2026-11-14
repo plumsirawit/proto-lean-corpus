@@ -6,6 +6,7 @@ import io
 from pathlib import Path
 import subprocess
 import time
+import shutil
 
 
 def check(path, reserve_bytes=0, reserve_files=0, fraction=0.8):
@@ -14,12 +15,13 @@ def check(path, reserve_bytes=0, reserve_files=0, fraction=0.8):
             "nonnegative reserves and a fraction between zero and one are required"
         )
     target = Path(path).resolve()
+    quota_command = shutil.which("lquota") or "/cluster/software/bin/lquota"
     # Query the destination filesystem; unrelated home quota RPC failures must not
     # block a scratch checkpoint. Any failure for this destination still aborts.
     for attempt in range(3):
         try:
             output = subprocess.check_output(
-                ["lquota", "-b", "-P", str(target)], text=True, timeout=30
+                [quota_command, "-b", "-P", str(target)], text=True, timeout=30
             )
             break
         except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
