@@ -80,7 +80,7 @@ from lean_corpus.environment import resolve_environment
 from lean_corpus.common import read_json, write_json
 work = Path(os.environ['LC_LOCAL_WORKSPACE']) / 'corpus'
 project = Path(os.environ['LC_LOCAL_PROJECT'])
-snapshot, _ = next(selected_snapshots(work, [os.environ['LC_SOURCE']]))
+snapshot, _ = next(iter(selected_snapshots(work, [os.environ['LC_SOURCE']])))
 paths = [p for p in (project / '.lake/build/lib/lean', project / '.lake/build/lib') if p.is_dir()]
 for package in sorted((project / '.lake/packages').iterdir()):
     paths.extend(p for p in (package / '.lake/build/lib/lean', package / '.lake/build/lib') if p.is_dir())
