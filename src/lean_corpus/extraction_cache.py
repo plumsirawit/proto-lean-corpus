@@ -86,10 +86,12 @@ class ExtractionCache:
             if enabled:
                 save(path, {"key": key, "outcome": "unsupported", "reason": str(error)})
             raise Unsupported(str(error)) from error
-        except Unsupported as error:
+        except ValueError as error:
+            # Match normalization's handling of structural record rejections,
+            # including ValueError raised when Lean cannot identify a valid target.
             if enabled:
                 save(path, {"key": key, "outcome": "unsupported", "reason": str(error)})
-            raise
+            raise Unsupported(str(error)) from error
         if enabled and result.get("_parser_imports_resolved", False):
             save(path, {"key": key, "outcome": "extracted", "result": result})
         return result

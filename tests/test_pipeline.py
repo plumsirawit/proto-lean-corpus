@@ -38,6 +38,26 @@ def test_streamed_json_matches_canonical_bytes(tmp_path):
     assert path.read_bytes() == (canonical(value) + "\n").encode("utf-8")
 
 
+def test_structural_extraction_rejection_is_cached(tmp_path):
+    from lean_corpus.adapters.records import Unsupported
+    from lean_corpus.extraction_cache import ExtractionCache
+
+    cache = ExtractionCache(tmp_path / "cache")
+    args = ("sample", {"sha256": "file"}, 0, "goedel_pset_v1", {"resolved": True})
+
+    def rejected():
+        raise ValueError("unsupported: expected complete supporting context")
+
+    def unexpected():
+        pytest.fail("cached structural rejection was extracted again")
+
+    with pytest.raises(Unsupported, match="complete supporting context"):
+        cache.extract(*args, rejected)
+    with pytest.raises(Unsupported, match="complete supporting context"):
+        cache.extract(*args, unexpected)
+    assert cache.hits == 1
+
+
 def test_record_extraction_limit_preserves_other_inputs(tmp_path, monkeypatch):
     from lean_corpus.adapters import ADAPTERS
     from lean_corpus.lean import LeanFailure
