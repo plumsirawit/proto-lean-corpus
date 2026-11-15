@@ -1,8 +1,9 @@
 from pathlib import Path
 from datetime import datetime, timezone
+from functools import partial
 from .acquire import included, registry, selected_snapshots
 from .adapters import ADAPTERS
-from .adapters.records import library, rows
+from .adapters.records import lean_workbook, library, rows
 from .common import digest, identity, read_json, text, write_json
 from .environment import environment_for
 from .extraction_cache import ExtractionCache, implementation_digest
@@ -91,6 +92,11 @@ def _normalize(work, sources, selected, limit, progress, selection):
         key = manifest["source_key"]
         if key not in ADAPTERS:
             raise ValueError(f"no active adapter: {key}")
+        adapter = ADAPTERS[key]
+        if key == "lean_workbook":
+            adapter = partial(
+                lean_workbook, upstream_revision=manifest.get("revision_label")
+            )
         sid = snapshot.name
         env_id = environment_for(work, sid, manifest)
         env = read_json(work / "environments" / f"{env_id}.json")
@@ -174,7 +180,7 @@ def _normalize(work, sources, selected, limit, progress, selection):
                                 index,
                                 key,
                                 env,
-                                lambda: ADAPTERS[key](row, env, runtime),
+                                lambda: adapter(row, env, runtime),
                             )
                         )
                         pid = identity(

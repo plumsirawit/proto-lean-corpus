@@ -293,10 +293,42 @@ def goedel_pset_v1(row, env, runtime):
     return result
 
 
-def lean_workbook(row, env, runtime):
-    result, original = base(
-        row, env, runtime, informal=row.get("natural_language_statement")
+WORKBOOK_HEADER_SOURCE = (
+    "https://huggingface.co/datasets/internlm/Lean-Workbook/discussions/1"
+)
+WORKBOOK_UPSTREAM_REVISION = "2e066e310b2c6d2c27616927ae131f82901c8f1c"
+WORKBOOK_TOOLCHAIN = "leanprover/lean4:v4.8.0-rc1"
+WORKBOOK_HEADER = (
+    "import Mathlib\n"
+    "import Aesop\n"
+    "import ProofWidgets\n"
+    "open BigOperators Nat Real Rat\n"
+)
+
+
+def lean_workbook(row, env, runtime, *, upstream_revision=None):
+    formal = row.get("formal_statement")
+    reconstructed = (
+        upstream_revision == WORKBOOK_UPSTREAM_REVISION
+        and env.get("resolved")
+        and env.get("toolchain") == WORKBOOK_TOOLCHAIN
+        and nonempty(formal)
+        and not re.search(r"(?m)^\s*import\s", formal)
     )
+    if reconstructed:
+        formal = WORKBOOK_HEADER + formal
+    result, original = base(
+        row, env, runtime, formal=formal, informal=row.get("natural_language_statement")
+    )
+    if reconstructed:
+        result["transformations"].insert(
+            0,
+            {
+                "action": "Reconstructed the Lean Workbook header for Lean 4.8.0-rc1",
+                "reference": WORKBOOK_HEADER_SOURCE,
+                "header": WORKBOOK_HEADER,
+            },
+        )
     if original != "by sorry":
         result["attempts"].append(
             {"proof": original, "field": "formal_statement", "informal": None}
