@@ -131,6 +131,13 @@ with `complete=true` and `runner_exit=0` to advance. Each per-process checker us
 one Lean thread, matching the worker backend and avoiding host-wide thread pools
 under a finite address-space limit.
 
+`LC_CHECKER_MEMORY_MB` sets the per-checker virtual address-space cap (default
+8192 MiB). This differs from the Slurm allocation's resident-memory limit:
+memory-mapped Lean module files can require substantially more address space than
+resident RAM. Measure the prepared environment before choosing both limits. The
+pilot metadata records the actual cap, and parallel verification releases idle
+parent checkers before starting its worker pool.
+
 For targeted compatibility tests, `LEAN_CORPUS_TEST_TOOLCHAIN` overrides the core
 test fixture's default Lean 4.19 toolchain. Supply an installed toolchain and run
 the relevant core/adapter tests; this does not install tools or rewrite source

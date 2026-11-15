@@ -3,6 +3,8 @@ open Lean Lean.Elab
 
 -- Lean 4.8 predates Lean.collectAxioms. This compatibility traversal follows
 -- Lean's Apache-2.0 CollectAxioms implementation (Microsoft, Leonardo de Moura).
+-- Copyright (c) 2020 Microsoft Corporation. All rights reserved.
+-- Released under Apache 2.0, as described in LICENSE. Author: Leonardo de Moura.
 -- Later versions use the standard collector, including its checked kernel env.
 structure CorpusAxiomState where
   visited : NameSet := {}
