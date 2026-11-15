@@ -15,7 +15,7 @@ from lean_corpus.export import export
 from lean_corpus.extraction_cache import implementation_digest
 from lean_corpus.lean import POLICY, inspect
 from lean_corpus.normalize import normalize
-from lean_corpus.parallel_extract import warm_goedel_extraction
+from lean_corpus.parallel_extract import PARALLEL_RECORD_SOURCES, warm_record_extraction
 from lean_corpus.parallel_verify import verify_parallel
 from lean_corpus.runtime import RuntimeGuard
 from lean_corpus.schema import read_tables
@@ -53,9 +53,9 @@ def main():
         parser.error("workers and timeout must be positive")
     if args.extraction_workers < 1 or (
         args.extraction_workers > 1
-        and (args.source != "goedel_pset_v1" or args.selection is None)
+        and (args.source not in PARALLEL_RECORD_SOURCES or args.selection is None)
     ):
-        parser.error("parallel extraction requires a selected Gödel Pset v1 pilot")
+        parser.error("parallel extraction requires a selected record-source pilot")
     args.output_dir.mkdir(parents=True, exist_ok=True)
     result_path = args.output_dir / "pilot-result.json"
     state = {
@@ -112,8 +112,8 @@ def main():
             close_all()
             record("warm_extraction_cache")
             started = time.monotonic()
-            state["extraction_warmup"] = warm_goedel_extraction(
-                args.work_dir, args.extraction_workers, args.selection
+            state["extraction_warmup"] = warm_record_extraction(
+                args.work_dir, args.source, args.extraction_workers, args.selection
             )
             state["extraction_warmup"]["seconds"] = time.monotonic() - started
         record("normalize")

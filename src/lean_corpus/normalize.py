@@ -1,9 +1,8 @@
 from pathlib import Path
 from datetime import datetime, timezone
-from functools import partial
 from .acquire import included, registry, selected_snapshots
-from .adapters import ADAPTERS
-from .adapters.records import PUTNAM_UPSTREAM_REVISION, lean_workbook, library, rows
+from .adapters import ADAPTERS, record_adapter
+from .adapters.records import PUTNAM_UPSTREAM_REVISION, library, rows
 from .common import digest, identity, read_json, text, write_json
 from .environment import environment_for
 from .extraction_cache import ExtractionCache, INPUT_CHECK_LIMITS, implementation_digest
@@ -92,10 +91,8 @@ def _normalize(work, sources, selected, limit, progress, selection):
         key = manifest["source_key"]
         if key not in ADAPTERS:
             raise ValueError(f"no active adapter: {key}")
-        adapter = ADAPTERS[key]
         revision = manifest.get("revision_label") or manifest["revision"]
-        if key == "lean_workbook":
-            adapter = partial(lean_workbook, upstream_revision=revision)
+        adapter = record_adapter(key, revision)
         pinned_putnam = key == "putnam_bench" and revision == PUTNAM_UPSTREAM_REVISION
         sid = snapshot.name
         env_id = environment_for(work, sid, manifest)

@@ -13,7 +13,7 @@ from lean_corpus.export import export
 from lean_corpus.extraction_cache import implementation_digest
 from lean_corpus.lean import POLICY, inspect
 from lean_corpus.normalize import normalize
-from lean_corpus.parallel_extract import warm_goedel_extraction
+from lean_corpus.parallel_extract import PARALLEL_RECORD_SOURCES, warm_record_extraction
 from lean_corpus.runtime import RuntimeGuard
 from lean_corpus.shutdown import install_shutdown_handler
 from lean_corpus.verify import verify
@@ -49,12 +49,15 @@ def main():
     if args.extraction_workers < 1 or (
         args.extraction_workers > 1
         and (
-            args.source != ["goedel_pset_v1"]
+            len(args.source) != 1
+            or args.source[0] not in PARALLEL_RECORD_SOURCES
             or args.limit is not None
             or args.resume_verification
         )
     ):
-        parser.error("parallel extraction requires a non-resume Gödel Pset v1 job")
+        parser.error(
+            "parallel extraction requires one supported record source and no verification resume"
+        )
     if args.limit is not None and args.limit <= 0:
         parser.error("limit must be positive")
     state_file = args.work_dir.parent / "full-run-state.json"
@@ -157,8 +160,11 @@ def main():
             if args.extraction_workers > 1:
                 close_all()
                 record("warm_extraction_cache")
-                warmup = warm_goedel_extraction(
-                    args.work_dir, args.extraction_workers, args.selection
+                warmup = warm_record_extraction(
+                    args.work_dir,
+                    args.source[0],
+                    args.extraction_workers,
+                    args.selection,
                 )
                 record("extraction_cache_ready", warmup)
             record("normalize")
