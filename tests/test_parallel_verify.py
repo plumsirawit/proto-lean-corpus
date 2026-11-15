@@ -45,8 +45,21 @@ def test_parallel_matches_serial_and_resumes(real_lean, tmp_path, monkeypatch, r
     parallel = tmp_path / "parallel"
     shutil.copytree(work, parallel)
     expected = verify(work)
-    close_all()
-    assert verify_parallel(parallel, workers=2) == expected
+    import subprocess
+    from lean_corpus.worker import _WORKERS
+
+    parents = list(_WORKERS.values())
+    if runner == "worker":
+        assert parents
+    popen = subprocess.Popen
+
+    def spawn_after_releasing_parent(*args, **kwargs):
+        assert all(w.process is None or w.process.poll() is not None for w in parents)
+        return popen(*args, **kwargs)
+
+    with monkeypatch.context() as context:
+        context.setattr(subprocess, "Popen", spawn_after_releasing_parent)
+        assert verify_parallel(parallel, workers=2) == expected
     assert read_tables(parallel / "canonical") == read_tables(work / "canonical")
     assert semantic_report(
         read_json(parallel / "reports/verification.json")

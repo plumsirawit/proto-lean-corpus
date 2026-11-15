@@ -32,6 +32,9 @@ def verify_parallel(work, workers=1, limit=None, timeout=60):
     work = Path(work).resolve()
     with (work / ".parallel-verification.lock").open("w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        # Imported environments can occupy several GiB. Release extraction or
+        # serial-check workers before allocating the requested verification pool.
+        close_all()
         return _verify(work, workers, limit, timeout)
 
 
