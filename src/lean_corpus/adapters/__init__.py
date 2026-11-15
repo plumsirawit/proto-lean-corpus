@@ -4,7 +4,9 @@ from functools import partial
 
 from .records import ADAPTERS
 
-__all__ = ["ADAPTERS", "record_adapter"]
+PARALLEL_RECORD_SOURCES = {"goedel_pset_v1", "lean_workbook"}
+
+__all__ = ["ADAPTERS", "PARALLEL_RECORD_SOURCES", "record_adapter"]
 
 
 def record_adapter(source, revision):

@@ -9,15 +9,13 @@ from pathlib import Path
 import pyarrow.parquet as pq
 
 from .acquire import selected_snapshots
-from .adapters import record_adapter
+from .adapters import PARALLEL_RECORD_SOURCES, record_adapter
 from .adapters.records import Unsupported
 from .common import read_json
 from .environment import environment_for
 from .extraction_cache import ExtractionCache, INPUT_CHECK_LIMITS
 from .lean import LeanFailure
 from .normalize import runtime_for
-
-PARALLEL_RECORD_SOURCES = {"goedel_pset_v1", "lean_workbook"}
 
 
 @lru_cache(maxsize=1)

@@ -1,7 +1,7 @@
 from pathlib import Path
 from datetime import datetime, timezone
 from .acquire import included, registry, selected_snapshots
-from .adapters import ADAPTERS, record_adapter
+from .adapters import ADAPTERS, PARALLEL_RECORD_SOURCES, record_adapter
 from .adapters.records import PUTNAM_UPSTREAM_REVISION, library, rows
 from .common import digest, identity, read_json, text, write_json
 from .environment import environment_for
@@ -256,7 +256,10 @@ def _normalize(work, sources, selected, limit, progress, selection):
                                 }
                             )
                     except LeanFailure as e:
-                        if e.reason in INPUT_CHECK_LIMITS:
+                        if (
+                            key in PARALLEL_RECORD_SOURCES
+                            and e.reason in INPUT_CHECK_LIMITS
+                        ):
                             kind = "inconclusive"
                         elif e.reason == "unsupported_syntax":
                             kind = "unsupported"

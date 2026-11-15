@@ -13,7 +13,8 @@ from lean_corpus.export import export
 from lean_corpus.extraction_cache import implementation_digest
 from lean_corpus.lean import POLICY, inspect
 from lean_corpus.normalize import normalize
-from lean_corpus.parallel_extract import PARALLEL_RECORD_SOURCES, warm_record_extraction
+from lean_corpus.adapters import PARALLEL_RECORD_SOURCES
+from lean_corpus.parallel_extract import warm_record_extraction
 from lean_corpus.runtime import RuntimeGuard
 from lean_corpus.shutdown import install_shutdown_handler
 from lean_corpus.verify import verify
