@@ -19,6 +19,7 @@ import time
 from .common import digest
 from .lean import (
     HELPER,
+    NAT_POWER_LIMIT,
     LeanFailure,
     decode_result,
     execution_config,
@@ -157,7 +158,7 @@ class Worker:
                 log = captured.decode(errors="replace") + self.diagnostics()
                 reason = (
                     "resource_exhaustion"
-                    if self.process.returncode < 0
+                    if self.process.returncode < 0 or NAT_POWER_LIMIT in log.lower()
                     else "checker_startup_or_process_failure"
                 )
                 if "CORPUS_SANDBOX_ERROR" in log or "unshare:" in log:

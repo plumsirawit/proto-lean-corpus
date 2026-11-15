@@ -11,6 +11,7 @@ from pathlib import Path
 from .common import file_hash
 
 HELPER = Path(__file__).with_name("lean") / "Inspect.lean"
+NAT_POWER_LIMIT = "internal panic: nat.pow exponent is too big"
 POLICY = {
     "version": "1",
     "allowed_axioms": ["propext", "Classical.choice", "Quot.sound"],
@@ -205,7 +206,7 @@ def inspect(
                 if process.returncode < 0
                 or any(
                     marker in log.lower()
-                    for marker in ("memory", "failed to create thread")
+                    for marker in ("memory", "failed to create thread", NAT_POWER_LIMIT)
                 )
                 else "parser_or_import_failure"
             )
