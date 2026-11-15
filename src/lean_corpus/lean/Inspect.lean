@@ -145,12 +145,15 @@ unsafe def inspectInput (input path mode target : String) (cache : ImportCache) 
         else
           rows := rows.push (Json.mkObj [("unsupported", toJson "non-simple theorem proof"), ("name", toJson thm[1][0].getId.toString)])
     return rows
-  let (rows, st) ← (action {inputCtx := ictx}).run {commandState := Command.mkState env importMsgs {}, parserState := ps, cmdPos := ps.pos}
+  let (rows, st) ← (action {inputCtx := ictx}).run {commandState := Command.mkState env msgs {}, parserState := ps, cmdPos := ps.pos}
   let errors ← st.commandState.messages.toList.filterMapM fun m => do
     if m.severity == .error then return some (← m.data.toString) else return none
   let mut result := [("targets", Json.arr rows), ("errors", toJson errors),
     ("admissions", toJson (st.commands.foldl (fun n c => n + admissions c) 0)),
     ("imports_resolved", toJson (!importMsgs.hasErrors)), ("parse_failed", toJson st.parserState.recovering)]
+  if importMsgs.hasErrors then
+    let details ← importMsgs.toList.mapM fun message => message.data.toString
+    result := result ++ [("import_errors", toJson details)]
   if mode == "parse" then
     let bodies := st.commands.foldl (fun acc cmd => acc ++ proofBodies cmd) #[]
     result := result ++ [("task_skeleton", Json.arr #[syntaxShape header #[], Json.arr (st.commands.map (syntaxShape · bodies))])]

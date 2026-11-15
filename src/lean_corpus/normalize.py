@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from functools import partial
 from .acquire import included, registry, selected_snapshots
 from .adapters import ADAPTERS
-from .adapters.records import lean_workbook, library, rows
+from .adapters.records import PUTNAM_UPSTREAM_REVISION, lean_workbook, library, rows
 from .common import digest, identity, read_json, text, write_json
 from .environment import environment_for
 from .extraction_cache import ExtractionCache, implementation_digest
@@ -93,12 +93,10 @@ def _normalize(work, sources, selected, limit, progress, selection):
         if key not in ADAPTERS:
             raise ValueError(f"no active adapter: {key}")
         adapter = ADAPTERS[key]
+        revision = manifest.get("revision_label") or manifest["revision"]
         if key == "lean_workbook":
-            adapter = partial(
-                lean_workbook,
-                upstream_revision=manifest.get("revision_label")
-                or manifest["revision"],
-            )
+            adapter = partial(lean_workbook, upstream_revision=revision)
+        pinned_putnam = key == "putnam_bench" and revision == PUTNAM_UPSTREAM_REVISION
         sid = snapshot.name
         env_id = environment_for(work, sid, manifest)
         env = read_json(work / "environments" / f"{env_id}.json")
@@ -132,6 +130,7 @@ def _normalize(work, sources, selected, limit, progress, selection):
                 if (
                     path.suffix != ".lean"
                     or path.name == "lakefile.lean"
+                    or (pinned_putnam and not relative.startswith("lean4/src/"))
                     or not included(relative, config[key].get("include"))
                 ):
                     continue
@@ -146,7 +145,7 @@ def _normalize(work, sources, selected, limit, progress, selection):
                 stream = (
                     (
                         (f"declaration={x.get('target')}", x)
-                        for x in library(path, env, runtime)
+                        for x in library(path, env, runtime, putnam=pinned_putnam)
                     )
                     if is_library
                     else rows(path)

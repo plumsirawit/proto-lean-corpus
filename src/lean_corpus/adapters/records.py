@@ -117,7 +117,7 @@ def statement(value, env, runtime):
     if env.get("resolved") and not parsed["imports_resolved"]:
         raise LeanFailure(
             "imports_unavailable",
-            "\n".join(parsed["errors"])
+            "\n".join(parsed.get("import_errors") or parsed["errors"])
             or "task imports unavailable in the recorded resolved environment",
         )
     if selected_target is None:
@@ -299,7 +299,13 @@ WORKBOOK_HEADER_SOURCE = (
 )
 WORKBOOK_UPSTREAM_REVISION = "2e066e310b2c6d2c27616927ae131f82901c8f1c"
 WORKBOOK_TOOLCHAIN = "leanprover/lean4:v4.8.0-rc1"
-WORKBOOK_HEADER = "import Mathlib\nopen BigOperators Nat Real Rat\n"
+# The root also exposes Nat's prime-counting notation. The posted Workbook
+# header opens Real without importing PrimeCounting, where π denotes Real.pi.
+WORKBOOK_HEADER = (
+    "import Mathlib\n"
+    "open BigOperators Nat Real Rat\n"
+    'local notation (priority := high) "π" => Real.pi\n'
+)
 
 
 def lean_workbook(row, env, runtime, *, upstream_revision=None):
@@ -469,8 +475,44 @@ def nemotron_math_proofs_v1(row, env, runtime):
     return result
 
 
-def library(path, env, runtime):
+PUTNAM_UPSTREAM_REVISION = "a635813f5edf297d928f9bd5ef8324a26bdde09c"
+PUTNAM_ANSWER_CONVENTION = (
+    "https://github.com/trishullab/PutnamBench/blob/"
+    + PUTNAM_UPSTREAM_REVISION
+    + "/lean4/README.md"
+)
+
+
+def putnam_answer(source, problem_name):
+    # This pinned benchmark places the supplied answer on the line immediately
+    # after a named, admitted answer abbreviation. Leave other admissions alone.
+    name = f"{problem_name}_solution"
+    pattern = rf"^abbrev[ \t]+{re.escape(name)}[ \t]*:[^\n]+:=[ \t]*(sorry)[ \t]*\n--[ \t]+([^\n]+)"
+    answer = re.search(pattern, source, flags=re.MULTILINE)
+    if answer is None:
+        return source, []
+    start, end = answer.span(1)
+    value = answer[2].strip()
+    if not value:
+        return source, []
+    transformed = source[:start] + f"({value})" + source[end:]
+    return transformed, [
+        {
+            "action": "Filled the answer abbreviation with its upstream comment",
+            "declaration": name,
+            "reference": PUTNAM_ANSWER_CONVENTION,
+            "answer_span_bytes": [
+                len(source[:offset].encode()) for offset in answer.span(2)
+            ],
+        }
+    ]
+
+
+def library(path, env, runtime, *, putnam=False):
     source = text(Path(path).read_text())
+    answer_transforms = []
+    if putnam:
+        source, answer_transforms = putnam_answer(source, path.stem)
     parsed = inspect(source, env, runtime)
     for target in parsed["targets"]:
         try:
@@ -491,7 +533,9 @@ def library(path, env, runtime):
                 "target": target["name"],
                 "informal": None,
                 "upstream_id": target["name"],
-                "attempts": [
+                "attempts": []
+                if putnam and body.strip() in {"sorry", "by sorry"}
+                else [
                     {
                         "proof": body,
                         "field": f"declaration={target['name']}&proof",
@@ -500,7 +544,8 @@ def library(path, env, runtime):
                 ],
                 "reports": [],
                 "transformations": [
-                    "Retained source prefix; replaced parsed target term; closed open scopes"
+                    *answer_transforms,
+                    "Retained source prefix; replaced parsed target term; closed open scopes",
                 ],
             }
             yield result
