@@ -138,17 +138,36 @@ def main():
         proofs = {p["id"]: p for p in tables["proofs"]}
         problems = {p["id"]: p for p in tables["problems"]}
         failures = {
+            "source": {
+                key: state[key]
+                for key in (
+                    "source",
+                    "snapshot_id",
+                    "dataset_revision",
+                    "upstream_revision_label",
+                    "environment_id",
+                    "toolchain",
+                )
+            },
             "proofs": [
                 {
                     **r,
                     "problem_id": proofs[r["proof_id"]]["problem_id"],
+                    "target_name": problems[proofs[r["proof_id"]]["problem_id"]][
+                        "target_name"
+                    ],
                     "source_refs": proofs[r["proof_id"]]["source_refs"],
                 }
                 for r in report["attempts"]
                 if r["status"] != "valid"
             ],
             "statements": [
-                {**r, "problem_id": pid, "source_refs": problems[pid]["source_refs"]}
+                {
+                    **r,
+                    "problem_id": pid,
+                    "target_name": problems[pid]["target_name"],
+                    "source_refs": problems[pid]["source_refs"],
+                }
                 for pid, r in report["problems"].items()
                 if r["status"] != "elaborated"
             ],
