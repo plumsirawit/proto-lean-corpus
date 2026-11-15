@@ -82,24 +82,7 @@ trap 'exit 143' TERM INT USR1
 if [[ -f "$TMPDIR/project/Mathlib.lean" && ! -f "$TMPDIR/project/.lake/build/lib/Mathlib.olean" && ! -f "$TMPDIR/project/.lake/build/lib/lean/Mathlib.olean" ]]; then
   (cd "$TMPDIR/project"; lake build Mathlib)
 fi
-"$python_bin" - <<'PY'
-from pathlib import Path
-import os
-from lean_corpus.acquire import selected_snapshots
-from lean_corpus.environment import resolve_environment
-from lean_corpus.common import read_json, write_json
-work = Path(os.environ['LC_LOCAL_WORKSPACE']) / 'corpus'
-project = Path(os.environ['LC_LOCAL_PROJECT'])
-snapshot, _ = next(iter(selected_snapshots(work, [os.environ['LC_SOURCE']])))
-paths = [p for p in (project / '.lake/build/lib/lean', project / '.lake/build/lib') if p.is_dir()]
-for package in sorted((project / '.lake/packages').iterdir()):
-    paths.extend(p for p in (package / '.lake/build/lib/lean', package / '.lake/build/lib') if p.is_dir())
-resolution = resolve_environment(work, snapshot.name, project, [str(p.relative_to(project)) for p in paths])
-runtime_file = work / 'runtimes' / (resolution['environment_id'] + '.json')
-runtime = read_json(runtime_file)
-runtime.update(runner='worker', memory_mb=int(os.environ.get('LC_CHECKER_MEMORY_MB', '8192')), worker_max_cases=128, parse_timeout=180)
-write_json(runtime_file, runtime)
-PY
+"$python_bin" scripts/resolve_local_runtime.py
 extra=()
 if [[ "$LC_SOURCE" != putnam_bench ]]; then
   extra+=(--selection "$workspace/selection-$LC_PILOT_SIZE.json")

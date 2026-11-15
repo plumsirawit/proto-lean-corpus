@@ -15,6 +15,11 @@ umask 077
 : "${LC_CHECKSUMS:?}" "${LC_DATASET_REVISION:?}" "${LC_EXPECTED_ROWS:?}"
 [[ "$LC_CODE_REVISION" =~ ^[0-9a-f]{40}$ ]]
 [[ "$LC_WORKSPACE_NAME" =~ ^[A-Za-z0-9_-][A-Za-z0-9._-]*$ ]]
+export LC_SOURCE="${LC_SOURCE:-numina_math_lean}"
+case "$LC_SOURCE" in
+  numina_math_lean|goedel_pset_v1|lean_workbook|putnam_bench) ;;
+  *) exit 2 ;;
+esac
 python_bin="$LC_REPO/.venv/bin/python"
 git clone --no-hardlinks --quiet "$LC_REPO" "$TMPDIR/code"
 git -C "$TMPDIR/code" checkout --quiet --detach "$LC_CODE_REVISION"
@@ -31,6 +36,16 @@ workspace="$TMPDIR/$LC_WORKSPACE_NAME"
 [[ -d "$workspace/corpus" ]]
 export ELAN_HOME="$TMPDIR/elan"
 export LC_LOCAL_PROJECT="$TMPDIR/project" LC_LOCAL_WORKSPACE="$workspace"
+checking_chain=$(cat "$TMPDIR/project/lean-toolchain")
+checking_directory=${checking_chain//\//--}
+checking_directory=${checking_directory//:/---}
+export PATH="$ELAN_HOME/toolchains/$checking_directory/bin:$PATH"
+if [[ -f "$TMPDIR/project/Mathlib.lean" && ! -f "$TMPDIR/project/.lake/build/lib/Mathlib.olean" && ! -f "$TMPDIR/project/.lake/build/lib/lean/Mathlib.olean" ]]; then
+  (cd "$TMPDIR/project"; lake build Mathlib)
+fi
+if [[ "${LC_PREPARE_RUNTIME:-0}" == 1 && "${LC_RESUME_VERIFICATION:-0}" != 1 ]]; then
+  "$python_bin" scripts/resolve_local_runtime.py
+fi
 "$python_bin" - <<'PY'
 from pathlib import Path
 import os
@@ -39,7 +54,8 @@ paths = list((Path(os.environ['LC_LOCAL_WORKSPACE']) / 'corpus/runtimes').glob('
 if len(paths) != 1:
     raise RuntimeError('this template requires exactly one explicitly prepared runtime')
 runtime = read_json(paths[0])
-runtime.update(project_dir=os.environ['LC_LOCAL_PROJECT'], runner='worker', memory_mb=8192,
+runtime.update(project_dir=os.environ['LC_LOCAL_PROJECT'], runner='worker',
+               memory_mb=int(os.environ.get('LC_CHECKER_MEMORY_MB', '8192')),
                worker_max_cases=int(os.environ.get('LC_WORKER_MAX_CASES', '128')), parse_timeout=180)
 write_json(paths[0], runtime)
 PY
@@ -85,7 +101,7 @@ if [[ -n "${LC_SELECTION_FILE:-}" ]]; then
 fi
 srun --cpu-bind=cores --ntasks=1 --cpus-per-task="${SLURM_CPUS_PER_TASK:-1}" \
   "$python_bin" scripts/run_local_corpus.py --work-dir "$workspace/corpus" \
-  --output-dir "$workspace/full-export-$SLURM_JOB_ID" --source numina_math_lean \
+  --output-dir "$workspace/full-export-$SLURM_JOB_ID" --source "$LC_SOURCE" \
   --dataset-revision "$LC_DATASET_REVISION" --expected-input-rows "$LC_EXPECTED_ROWS" \
   --timeout "${LC_TIMEOUT:-120}" "${extra[@]}" &
 runner_pid=$!

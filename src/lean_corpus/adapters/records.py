@@ -117,7 +117,8 @@ def statement(value, env, runtime):
     if env.get("resolved") and not parsed["imports_resolved"]:
         raise LeanFailure(
             "imports_unavailable",
-            "task imports unavailable in the recorded resolved environment",
+            "\n".join(parsed["errors"])
+            or "task imports unavailable in the recorded resolved environment",
         )
     if selected_target is None:
         placeholders = placeholder_targets(source, parsed)
@@ -298,12 +299,7 @@ WORKBOOK_HEADER_SOURCE = (
 )
 WORKBOOK_UPSTREAM_REVISION = "2e066e310b2c6d2c27616927ae131f82901c8f1c"
 WORKBOOK_TOOLCHAIN = "leanprover/lean4:v4.8.0-rc1"
-WORKBOOK_HEADER = (
-    "import Mathlib\n"
-    "import Aesop\n"
-    "import ProofWidgets\n"
-    "open BigOperators Nat Real Rat\n"
-)
+WORKBOOK_HEADER = "import Mathlib\nopen BigOperators Nat Real Rat\n"
 
 
 def lean_workbook(row, env, runtime, *, upstream_revision=None):

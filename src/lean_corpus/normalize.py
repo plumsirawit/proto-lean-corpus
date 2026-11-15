@@ -95,7 +95,9 @@ def _normalize(work, sources, selected, limit, progress, selection):
         adapter = ADAPTERS[key]
         if key == "lean_workbook":
             adapter = partial(
-                lean_workbook, upstream_revision=manifest.get("revision_label")
+                lean_workbook,
+                upstream_revision=manifest.get("revision_label")
+                or manifest["revision"],
             )
         sid = snapshot.name
         env_id = environment_for(work, sid, manifest)
