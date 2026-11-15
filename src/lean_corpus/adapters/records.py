@@ -580,7 +580,7 @@ def library(path, env, runtime, *, putnam=False):
                 "informal": None,
                 "upstream_id": target["name"],
                 "attempts": []
-                if putnam and body.strip() in {"sorry", "by sorry"}
+                if putnam and re.fullmatch(r"(?:by\s+)?sorry", body.strip())
                 else [
                     {
                         "proof": body,
