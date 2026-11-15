@@ -43,3 +43,17 @@ def test_quota_stays_closed_when_rpc_never_recovers(tmp_path, monkeypatch):
     with pytest.raises(subprocess.TimeoutExpired):
         check(tmp_path)
     assert len(calls) == 3
+
+
+def test_quota_preserves_rpc_failure_diagnostic(tmp_path, monkeypatch):
+    check = runpy.run_path("scripts/euler_quota.py")["check"]
+
+    def query(command, **kwargs):
+        raise subprocess.CalledProcessError(
+            5, command, output="Lustre quota temporarily unavailable"
+        )
+
+    monkeypatch.setattr(subprocess, "check_output", query)
+    monkeypatch.setattr(time, "sleep", lambda _: None)
+    with pytest.raises(RuntimeError, match="Lustre quota temporarily unavailable"):
+        check(tmp_path)

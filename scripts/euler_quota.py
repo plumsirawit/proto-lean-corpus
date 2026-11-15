@@ -21,11 +21,18 @@ def check(path, reserve_bytes=0, reserve_files=0, fraction=0.8):
     for attempt in range(3):
         try:
             output = subprocess.check_output(
-                [quota_command, "-b", "-P", str(target)], text=True, timeout=30
+                [quota_command, "-b", "-P", str(target)],
+                text=True,
+                timeout=30,
+                stderr=subprocess.STDOUT,
             )
             break
-        except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
+        except (subprocess.TimeoutExpired, subprocess.CalledProcessError) as error:
             if attempt == 2:
+                if isinstance(error, subprocess.CalledProcessError):
+                    raise RuntimeError(
+                        f"destination quota query exited {error.returncode}: {error.output}"
+                    ) from error
                 raise
             time.sleep(attempt + 1)
     rows = list(csv.DictReader(io.StringIO(output), delimiter="|"))
