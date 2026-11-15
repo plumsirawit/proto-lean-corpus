@@ -530,7 +530,10 @@ def putnam_answer(source, problem_name):
     # This pinned benchmark places the supplied answer on the line immediately
     # after a named, admitted answer abbreviation. Leave other admissions alone.
     name = f"{problem_name}_solution"
-    pattern = rf"^abbrev[ \t]+{re.escape(name)}[ \t]*:[^\n]+:=[ \t]*(sorry)[ \t]*\n--[ \t]+([^\n]+)"
+    pattern = (
+        rf"^(?:noncomputable[ \t]+)?abbrev[ \t]+{re.escape(name)}"
+        r"[ \t]*:[^\n]+:=[ \t]*(sorry)[ \t]*\n--[ \t]*([^\n]+)"
+    )
     answer = re.search(pattern, source, flags=re.MULTILINE)
     if answer is None:
         return source, []
