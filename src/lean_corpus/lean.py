@@ -202,7 +202,11 @@ def inspect(
         if process.returncode != 0:
             reason = (
                 "resource_exhaustion"
-                if process.returncode < 0 or "memory" in log.lower()
+                if process.returncode < 0
+                or any(
+                    marker in log.lower()
+                    for marker in ("memory", "failed to create thread")
+                )
                 else "parser_or_import_failure"
             )
             raise LeanFailure(reason, f"checker exit code {process.returncode}\n" + log)

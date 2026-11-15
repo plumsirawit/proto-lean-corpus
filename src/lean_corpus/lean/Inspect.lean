@@ -100,7 +100,8 @@ unsafe def inspectInput (input path mode target : String) (cache : ImportCache) 
     importModules (leakEnv := true) #[{module := `Lean}] {}
     else pure env0
   if importMsgs.hasErrors && mode != "parse" then
-    throw (IO.Error.userError "imports unavailable")
+    let details ← importMsgs.toList.mapM fun message => message.data.toString
+    throw (IO.Error.userError ("imports unavailable:\n" ++ String.intercalate "\n" details))
   let action : Frontend.FrontendM (Array Json) := do
     let mut rows := #[]
     let mut done_ := false

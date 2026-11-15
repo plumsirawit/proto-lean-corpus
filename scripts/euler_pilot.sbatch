@@ -97,7 +97,7 @@ for package in sorted((project / '.lake/packages').iterdir()):
 resolution = resolve_environment(work, snapshot.name, project, [str(p.relative_to(project)) for p in paths])
 runtime_file = work / 'runtimes' / (resolution['environment_id'] + '.json')
 runtime = read_json(runtime_file)
-runtime.update(runner='worker', memory_mb=8192, worker_max_cases=128, parse_timeout=180)
+runtime.update(runner='worker', memory_mb=int(os.environ.get('LC_CHECKER_MEMORY_MB', '8192')), worker_max_cases=128, parse_timeout=180)
 write_json(runtime_file, runtime)
 PY
 extra=()

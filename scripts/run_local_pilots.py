@@ -84,6 +84,9 @@ def main():
         if len(runtimes) != 1:
             raise ValueError("a pilot requires one explicitly prepared runtime")
         env, runtime = guard.get(runtimes[0].stem)
+        state["memory_mb"] = runtime.get("memory_mb", 4096)
+        state["parse_timeout_seconds"] = runtime.get("parse_timeout", 60)
+        state["runner"] = runtime.get("runner", "process")
         probe = inspect(
             "import Mathlib\ntheorem __pilot_probe : True := by trivial",
             env,
