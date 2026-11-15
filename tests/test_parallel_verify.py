@@ -10,7 +10,6 @@ from lean_corpus.normalize import normalize
 from lean_corpus.parallel_verify import verify_parallel
 from lean_corpus.schema import read_tables
 from lean_corpus.verify import verify
-from lean_corpus.worker import close_all
 
 
 def semantic_report(value):
