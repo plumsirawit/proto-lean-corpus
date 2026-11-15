@@ -30,7 +30,12 @@ sha256sum -c "$LC_CHECKSUMS"
 sha256sum -c "$LC_INPUT_ARCHIVE.sha256"
 mkdir -p "$TMPDIR/project" "$TMPDIR/elan/toolchains"
 tar -xf "$LC_PROJECT_ARCHIVE" -C "$TMPDIR/project"
-tar -xf "$LC_TOOLCHAIN_ARCHIVE" -C "$TMPDIR/elan/toolchains"
+toolchain_root="$TMPDIR/elan/toolchains"
+if [[ "${LC_PREPARE_RUNTIME:-0}" == 1 ]]; then
+  # The prepared inputs shared with euler_pilot.sbatch already contain toolchains/.
+  toolchain_root="$TMPDIR/elan"
+fi
+tar -xf "$LC_TOOLCHAIN_ARCHIVE" -C "$toolchain_root"
 tar -xf "$LC_INPUT_ARCHIVE" -C "$TMPDIR"
 workspace="$TMPDIR/$LC_WORKSPACE_NAME"
 [[ -d "$workspace/corpus" ]]
