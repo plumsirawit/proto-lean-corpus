@@ -4,16 +4,16 @@ import os
 from pathlib import Path
 
 VERSION = "1"
+CANONICAL_JSON = {
+    "sort_keys": True,
+    "ensure_ascii": False,
+    "separators": (",", ":"),
+    "allow_nan": False,
+}
 
 
 def canonical(value):
-    return json.dumps(
-        value,
-        sort_keys=True,
-        ensure_ascii=False,
-        separators=(",", ":"),
-        allow_nan=False,
-    )
+    return json.dumps(value, **CANONICAL_JSON)
 
 
 def digest(value):
@@ -44,7 +44,11 @@ def write_json(path, value):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     temp = path.with_suffix(path.suffix + ".tmp")
-    temp.write_text(canonical(value) + "\n")
+    # Full-corpus reports can exceed several GiB. Stream the same canonical
+    # representation without holding the serialized string and bytes in memory.
+    with temp.open("w", encoding="utf-8") as stream:
+        json.dump(value, stream, **CANONICAL_JSON)
+        stream.write("\n")
     os.replace(temp, path)
 
 

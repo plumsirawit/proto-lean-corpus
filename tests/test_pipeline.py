@@ -29,6 +29,15 @@ def test_acquisition_integrity_and_deferred(tmp_path):
         check_snapshot(work / "snapshots" / sid)
 
 
+def test_streamed_json_matches_canonical_bytes(tmp_path):
+    from lean_corpus.common import canonical, write_json
+
+    path = tmp_path / "metadata.json"
+    value = {"rows": [{"id": 2, "formula": "∀ x : ℝ, x = x"}], "complete": True}
+    write_json(path, value)
+    assert path.read_bytes() == (canonical(value) + "\n").encode("utf-8")
+
+
 def test_record_extraction_limit_preserves_other_inputs(tmp_path, monkeypatch):
     from lean_corpus.adapters import ADAPTERS
     from lean_corpus.lean import LeanFailure
