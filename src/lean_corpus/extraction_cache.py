@@ -5,6 +5,8 @@ from .common import digest, file_hash, read_json, write_json
 from .lean import LeanFailure
 from .adapters.records import Unsupported
 
+INPUT_CHECK_LIMITS = {"timeout", "resource_exhaustion", "output_limit"}
+
 
 def implementation_files():
     root = Path(__file__).parent

@@ -128,7 +128,10 @@ def main():
         seen = extraction["input_occurrences"]
         if args.extraction_workers > 1:
             state["first_normalization_cache_hits"] = extraction["cache_hits"]
-            if extraction["cache_hits"] != seen:
+            if (
+                extraction["cache_hits"] + state["extraction_warmup"]["deferred_rows"]
+                != seen
+            ):
                 raise RuntimeError("parallel extraction cache did not cover the pilot")
         if seen != args.size and not (
             args.source == "putnam_bench"

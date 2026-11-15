@@ -12,7 +12,8 @@ from .adapters.records import Unsupported, goedel_pset_v1
 from .acquire import selected_snapshots
 from .common import read_json
 from .environment import environment_for
-from .extraction_cache import ExtractionCache
+from .extraction_cache import ExtractionCache, INPUT_CHECK_LIMITS
+from .lean import LeanFailure
 from .normalize import runtime_for
 
 
@@ -20,6 +21,7 @@ def _extract_group(job, *, cache_dir, source_id, environment, runtime):
     path, entry, group, offset, selected = job
     cache = ExtractionCache(cache_dir)
     index = offset
+    deferred = 0
     for batch in pq.ParquetFile(path).iter_batches(batch_size=512, row_groups=[group]):
         for row in batch.to_pylist():
             if selected is None or index in selected:
@@ -35,12 +37,19 @@ def _extract_group(job, *, cache_dir, source_id, environment, runtime):
                 except Unsupported:
                     # normalize reads the cached outcome and records its source location.
                     pass
+                except LeanFailure as error:
+                    if error.reason not in INPUT_CHECK_LIMITS:
+                        raise RuntimeError(
+                            f"{entry['path']}#row={index}: {error}"
+                        ) from error
+                    # Retry under serial normalization once competing workers exit.
+                    deferred += 1
                 except Exception as error:
                     raise RuntimeError(
                         f"{entry['path']}#row={index}: {error}"
                     ) from error
             index += 1
-    return cache.hits, cache.misses
+    return cache.hits, cache.misses, deferred
 
 
 def _row_groups(path, entry, indices):
@@ -92,15 +101,16 @@ def warm_goedel_extraction(work, workers, selection=None):
         environment=environment,
         runtime=runtime,
     )
-    completed = hits = misses = 0
+    completed = hits = misses = deferred = 0
     with multiprocessing.get_context("spawn").Pool(min(workers, len(groups))) as pool:
-        for old, new in pool.imap_unordered(extract, groups):
+        for old, new, limited in pool.imap_unordered(extract, groups):
             hits += old
             misses += new
+            deferred += limited
             visited = hits + misses
             if visited // 20000 > completed // 20000:
                 print(f"Prepared extraction cache for {visited:,} rows", flush=True)
             completed = visited
         pool.close()
         pool.join()
-    return {"cache_hits": hits, "cache_misses": misses}
+    return {"cache_hits": hits, "cache_misses": misses, "deferred_rows": deferred}

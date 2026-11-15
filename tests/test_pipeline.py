@@ -29,6 +29,39 @@ def test_acquisition_integrity_and_deferred(tmp_path):
         check_snapshot(work / "snapshots" / sid)
 
 
+def test_record_extraction_limit_preserves_other_inputs(tmp_path, monkeypatch):
+    from lean_corpus.adapters import ADAPTERS
+    from lean_corpus.lean import LeanFailure
+
+    local = tmp_path / "source"
+    local.mkdir()
+    (local / "data.jsonl").write_text('{"id":"limited"}\n{"id":"kept"}\n')
+    work = tmp_path / "work"
+    acquire(work, REGISTRY, "goedel_pset_v1", local)
+
+    def extract(row, _environment, _runtime):
+        if row["id"] == "limited":
+            raise LeanFailure("timeout")
+        return {
+            "task": "theorem kept : True := by sorry",
+            "target": "kept",
+            "informal": None,
+            "upstream_id": row["id"],
+            "attempts": [],
+            "reports": [],
+            "transformations": [],
+        }
+
+    monkeypatch.setitem(ADAPTERS, "goedel_pset_v1", extract)
+    assert normalize(work, REGISTRY) == {"problems": 1, "proofs": 0, "reports": 1}
+    report = read_json(work / "reports/extraction.json")
+    assert report["input_occurrences"] == 2
+    [limited] = report["reports"]
+    assert limited["kind"] == "inconclusive"
+    assert limited["location"] == "data.jsonl#row=0"
+    assert limited["reason"] == "timeout"
+
+
 @pytest.mark.lean
 def test_end_to_end(real_lean, tmp_path, monkeypatch):
     work = tmp_path / "work"

@@ -6,7 +6,7 @@ from .adapters import ADAPTERS
 from .adapters.records import PUTNAM_UPSTREAM_REVISION, lean_workbook, library, rows
 from .common import digest, identity, read_json, text, write_json
 from .environment import environment_for
-from .extraction_cache import ExtractionCache, implementation_digest
+from .extraction_cache import ExtractionCache, INPUT_CHECK_LIMITS, implementation_digest
 from .lean import LeanFailure
 from .schema import write_tables
 
@@ -259,13 +259,17 @@ def _normalize(work, sources, selected, limit, progress, selection):
                                 }
                             )
                     except LeanFailure as e:
-                        if e.reason != "unsupported_syntax":
+                        if e.reason in INPUT_CHECK_LIMITS:
+                            kind = "inconclusive"
+                        elif e.reason == "unsupported_syntax":
+                            kind = "unsupported"
+                        else:
                             raise
                         reports.append(
                             {
                                 "source_id": sid,
                                 "location": location,
-                                "kind": "unsupported",
+                                "kind": kind,
                                 "reason": str(e),
                             }
                         )
