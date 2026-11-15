@@ -90,7 +90,8 @@ fi
 srun --cpu-bind=cores --ntasks=1 --cpus-per-task="${SLURM_CPUS_PER_TASK:-2}" \
   "$python_bin" scripts/run_local_pilots.py --work-dir "$workspace/corpus" \
   --output-dir "$workspace/results/pilot-$LC_PILOT_SIZE" --source "$LC_SOURCE" \
-  --size "$LC_PILOT_SIZE" --workers "${LC_VERIFY_WORKERS:-2}" "${extra[@]}" &
+  --size "$LC_PILOT_SIZE" --workers "${LC_VERIFY_WORKERS:-2}" \
+  --extraction-workers "${LC_EXTRACTION_WORKERS:-1}" "${extra[@]}" &
 runner_pid=$!
 wait "$runner_pid"
 runner_pid=""

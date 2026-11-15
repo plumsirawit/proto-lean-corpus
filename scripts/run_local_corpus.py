@@ -13,6 +13,7 @@ from lean_corpus.export import export
 from lean_corpus.extraction_cache import implementation_digest
 from lean_corpus.lean import POLICY, inspect
 from lean_corpus.normalize import normalize
+from lean_corpus.parallel_extract import warm_goedel_extraction
 from lean_corpus.runtime import RuntimeGuard
 from lean_corpus.shutdown import install_shutdown_handler
 from lean_corpus.verify import verify
@@ -31,6 +32,7 @@ def main():
     parser.add_argument("--probe-import", default="Mathlib")
     parser.add_argument("--timeout", type=int, default=120)
     parser.add_argument("--workers", type=int, default=1)
+    parser.add_argument("--extraction-workers", type=int, default=1)
     parser.add_argument(
         "--resume-verification",
         action="store_true",
@@ -44,6 +46,15 @@ def main():
         parser.error("probe import must be a module name")
     if args.expected_input_rows <= 0 or args.timeout <= 0 or args.workers <= 0:
         parser.error("expected rows and timeout must be positive")
+    if args.extraction_workers < 1 or (
+        args.extraction_workers > 1
+        and (
+            args.source != ["goedel_pset_v1"]
+            or args.limit is not None
+            or args.resume_verification
+        )
+    ):
+        parser.error("parallel extraction requires a non-resume Gödel Pset v1 job")
     if args.limit is not None and args.limit <= 0:
         parser.error("limit must be positive")
     state_file = args.work_dir.parent / "full-run-state.json"
@@ -143,6 +154,13 @@ def main():
         write_json(args.work_dir / "reports/effective-execution.json", execution)
         state["effective_execution"] = execution
         if not args.resume_verification:
+            if args.extraction_workers > 1:
+                close_all()
+                record("warm_extraction_cache")
+                warmup = warm_goedel_extraction(
+                    args.work_dir, args.extraction_workers, args.selection
+                )
+                record("extraction_cache_ready", warmup)
             record("normalize")
             result = normalize(
                 args.work_dir, args.sources, args.source, args.limit, args.selection

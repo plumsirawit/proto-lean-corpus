@@ -5,6 +5,7 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 import subprocess
+import time
 import traceback
 
 from lean_corpus.acquire import selected_snapshots
@@ -14,6 +15,7 @@ from lean_corpus.export import export
 from lean_corpus.extraction_cache import implementation_digest
 from lean_corpus.lean import POLICY, inspect
 from lean_corpus.normalize import normalize
+from lean_corpus.parallel_extract import warm_goedel_extraction
 from lean_corpus.parallel_verify import verify_parallel
 from lean_corpus.runtime import RuntimeGuard
 from lean_corpus.schema import read_tables
@@ -44,10 +46,16 @@ def main():
     parser.add_argument("--size", type=int, choices=(10, 100, 1000), required=True)
     parser.add_argument("--selection", type=Path)
     parser.add_argument("--workers", type=int, default=1)
+    parser.add_argument("--extraction-workers", type=int, default=1)
     parser.add_argument("--timeout", type=int, default=120)
     args = parser.parse_args()
     if args.workers <= 0 or args.timeout <= 0:
         parser.error("workers and timeout must be positive")
+    if args.extraction_workers < 1 or (
+        args.extraction_workers > 1
+        and (args.source != "goedel_pset_v1" or args.selection is None)
+    ):
+        parser.error("parallel extraction requires a selected Gödel Pset v1 pilot")
     args.output_dir.mkdir(parents=True, exist_ok=True)
     result_path = args.output_dir / "pilot-result.json"
     state = {
@@ -100,7 +108,16 @@ def main():
         guard.finish()
         state["environment_id"] = runtimes[0].stem
         state["toolchain"] = env["toolchain"]
+        if args.extraction_workers > 1:
+            close_all()
+            record("warm_extraction_cache")
+            started = time.monotonic()
+            state["extraction_warmup"] = warm_goedel_extraction(
+                args.work_dir, args.extraction_workers, args.selection
+            )
+            state["extraction_warmup"]["seconds"] = time.monotonic() - started
         record("normalize")
+        started = time.monotonic()
         bounds = (
             {"selection": args.selection} if args.selection else {"limit": args.size}
         )
@@ -109,6 +126,10 @@ def main():
         )
         extraction = read_json(args.work_dir / "reports/extraction.json")
         seen = extraction["input_occurrences"]
+        if args.extraction_workers > 1:
+            state["first_normalization_cache_hits"] = extraction["cache_hits"]
+            if extraction["cache_hits"] != seen:
+                raise RuntimeError("parallel extraction cache did not cover the pilot")
         if seen != args.size and not (
             args.source == "putnam_bench"
             and args.size == 1000
@@ -129,14 +150,17 @@ def main():
         }:
             raise RuntimeError("normalization is not byte-repeatable")
         state["repeat_normalization_equal"] = True
+        state["normalization_seconds"] = time.monotonic() - started
         state["deduplicated"] = deduplicate(args.work_dir)
         record("verify")
+        started = time.monotonic()
         state["verification"] = (
             verify(args.work_dir, timeout=args.timeout)
             if args.workers == 1
             else verify_parallel(args.work_dir, args.workers, timeout=args.timeout)
         )
         report = read_json(args.work_dir / "reports/verification.json")
+        state["verification_seconds"] = time.monotonic() - started
         tables = read_tables(args.work_dir / "canonical")
         proofs = {p["id"]: p for p in tables["proofs"]}
         problems = {p["id"]: p for p in tables["problems"]}
