@@ -285,7 +285,50 @@ def add(result, value, field, env, runtime, response=False, explanation=None):
 
 
 def goedel_pset_v1(row, env, runtime):
-    result, original = base(row, env, runtime)
+    try:
+        result, original = base(row, env, runtime)
+    except LeanFailure as error:
+        if error.reason != "unsupported_syntax":
+            raise
+        source = text(row["formal_statement"])
+        # A malformed generated tactic body can prevent the command parser from
+        # returning a proof span. Limit recovery to one top-level theorem with
+        # an indented suffix, and have Lean check the isolated declaration.
+        declarations = list(re.finditer(r"(?m)^theorem\s+", source))
+        if len(declarations) != 1:
+            raise
+        declaration = declarations[0]
+        if re.search(r"(?m)^(?:namespace|section)\b", source[: declaration.start()]):
+            raise
+        slot = re.search(r":=\s*(?P<proof>by)\b", source[declaration.end() :])
+        if slot is None:
+            raise
+        start = declaration.end() + slot.start("proof")
+        original = source[start:]
+        if re.search(r"(?m)\n(?!--)\S", original):
+            raise
+        try:
+            result, placeholder = base(
+                row, env, runtime, formal=source[:start] + "by sorry"
+            )
+        except (Unsupported, LeanFailure) as repair_error:
+            if isinstance(repair_error, LeanFailure) and (
+                repair_error.reason != "unsupported_syntax"
+            ):
+                raise
+            raise error from repair_error
+        if placeholder != "by sorry":
+            raise
+        result["transformations"].append(
+            {
+                "action": "Recovered the theorem before a malformed tactic body",
+                "proof_span_bytes": [
+                    len(source[:start].encode()),
+                    len(source.encode()),
+                ],
+                "original_parse_error": error.detail,
+            }
+        )
     # Pset is a statement source. If the supplied field contains a proof, preserve it.
     if original != "by sorry":
         result["attempts"].append(
