@@ -95,6 +95,7 @@ if seen != receipt["run_state"]["expected_input_rows"]:
         "The normalized input count differed from the independent source count"
     )
 
+
 def verification_results(path):
     # The canonical writer emits attempts first and problems last. Decode only
     # one result at a time and keep the fields needed to reconcile the export.
@@ -130,7 +131,9 @@ def verification_results(path):
 
         def expect(token):
             if not take(token):
-                raise ValueError(f"Unexpected verification report structure near {token!r}")
+                raise ValueError(
+                    f"Unexpected verification report structure near {token!r}"
+                )
 
         def record(results, identifier, item):
             if identifier in results:
