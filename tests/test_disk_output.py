@@ -43,7 +43,7 @@ def test_spooled_output_and_fingerprint_equal_existing(tmp_path):
     assert read_tables(tmp_path / "old") == read_tables(tmp_path / "new")
 
 
-@pytest.mark.parametrize("failure", ["key", "extra", "status", "iterator"])
+@pytest.mark.parametrize("failure", ["key", "null", "status", "iterator"])
 def test_failed_spooling_keeps_previous_tables(tmp_path, failure):
     data = serial_tables()
     public = tmp_path / "public"
@@ -51,8 +51,8 @@ def test_failed_spooling_keeps_previous_tables(tmp_path, failure):
     before = {p.name: p.read_bytes() for p in public.iterdir()}
     if failure == "key":
         data["proofs"][0]["problem_id"] = "missing"
-    elif failure == "extra":
-        data["proofs"][0]["unexpected"] = True
+    elif failure == "null":
+        data["proofs"][0]["formal_proof"] = None
     elif failure == "status":
         data["proofs"][0]["verification_status"] = "unknown"
     else:

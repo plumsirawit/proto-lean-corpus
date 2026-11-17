@@ -96,7 +96,7 @@ def write_spooled_tables(directory, tables, staging, batch_size=32):
         raise ValueError("all three tables required")
     staging = Path(staging)
     staging.mkdir()
-    # Validate originals before Arrow can coerce values or drop extra fields.
+    # Validate originals before Arrow can coerce values.
     validate_occurrences(
         ((name, row) for name in SCHEMAS for row in tables[name]),
         staging / "original-validation.sqlite", unique=False,
