@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 import re
 import subprocess
+import tempfile
 import traceback
 from lean_corpus.acquire import selected_snapshots
 from lean_corpus.common import read_json, write_json
@@ -17,6 +18,7 @@ from lean_corpus.adapters import PARALLEL_RECORD_SOURCES
 from lean_corpus.parallel_extract import warm_record_extraction
 from lean_corpus.runtime import RuntimeGuard
 from lean_corpus.shutdown import install_shutdown_handler
+from lean_corpus.stage_summary import extraction_summary
 from lean_corpus.verify import verify
 from lean_corpus.parallel_verify import verify_parallel
 from lean_corpus.worker import STATS, close_all
@@ -35,6 +37,10 @@ def main():
     parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--extraction-workers", type=int, default=1)
     parser.add_argument(
+        "--spool-root", type=Path,
+        help="existing job-local directory outside workspace for bounded serial stages",
+    )
+    parser.add_argument(
         "--resume-verification",
         action="store_true",
         help="reuse completed normalized/canonical inputs from this checkpoint",
@@ -43,6 +49,21 @@ def main():
     bounds.add_argument("--limit", type=int)
     bounds.add_argument("--selection", type=Path)
     args = parser.parse_args()
+    if args.spool_root is not None:
+        workspace = args.work_dir.resolve().parent
+        root = args.spool_root.resolve(strict=True)
+        if not root.is_dir() or root.is_relative_to(workspace):
+            parser.error("spool root must be an existing directory outside workspace")
+        if args.workers != 1 or args.extraction_workers != 1:
+            parser.error("bounded stages currently require serial workers")
+        # Each invocation gets an exclusive directory; failed spools stay available
+        # locally and are never added to recovery archives of the workspace.
+        spool = Path(tempfile.mkdtemp(prefix="corpus-stages-", dir=root))
+    else:
+        spool = None
+
+    def stage_options(stage):
+        return {"spool_dir": spool / stage} if spool is not None else {}
     if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.]*", args.probe_import):
         parser.error("probe import must be a module name")
     if args.expected_input_rows <= 0 or args.timeout <= 0 or args.workers <= 0:
@@ -89,6 +110,7 @@ def main():
         "expected_input_rows": args.expected_input_rows,
         "limit": args.limit,
         "selection_file": args.selection.name if args.selection else None,
+        "bounded_stages": spool is not None,
         "stages": {},
     }
     if args.resume_verification:
@@ -170,24 +192,29 @@ def main():
                 record("extraction_cache_ready", warmup)
             record("normalize")
             result = normalize(
-                args.work_dir, args.sources, args.source, args.limit, args.selection
+                args.work_dir, args.sources, args.source, args.limit, args.selection,
+                **stage_options("normalize"),
             )
             record("normalized", result)
-        extraction = read_json(args.work_dir / "reports/extraction.json")
+        extraction = (
+            extraction_summary(args.work_dir) if spool is not None
+            else read_json(args.work_dir / "reports/extraction.json")
+        )
         if extraction["input_occurrences"] != args.expected_input_rows:
             raise RuntimeError("normalization did not visit the expected input rows")
         if not args.resume_verification:
-            record("deduplicated", deduplicate(args.work_dir))
+            record("deduplicated", deduplicate(args.work_dir, **stage_options("deduplicate")))
         close_all()
         record("verify")
         result = (
-            verify(args.work_dir, timeout=args.timeout)
+            verify(args.work_dir, timeout=args.timeout, **stage_options("verify"))
             if args.workers == 1
             else verify_parallel(args.work_dir, args.workers, timeout=args.timeout)
         )
         record("verified", result)
         record("export")
-        record("complete", export(args.work_dir, args.output_dir, args.sources))
+        record("complete", export(args.work_dir, args.output_dir, args.sources,
+                                  **stage_options("export")))
     except BaseException as error:
         state["error"] = str(error)
         state["traceback"] = traceback.format_exc()

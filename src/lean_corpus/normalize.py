@@ -354,6 +354,9 @@ def _normalize(work, sources, selected, limit, progress, selection, spool_dir=No
         work / "normalized" / "state.json",
         {"fingerprint": fingerprint(tables)},
     )
+    from .stage_summary import write_extraction_summary
+
+    write_extraction_summary(work, count, len(tables["problems"]), len(tables["proofs"]))
     return {
         "problems": len(tables["problems"]),
         "proofs": len(tables["proofs"]),

@@ -97,6 +97,11 @@ verification_workers=${LC_VERIFY_WORKERS:-1}
 [[ "$verification_workers" -le "${SLURM_CPUS_PER_TASK:-1}" ]]
 extra+=(--workers "$verification_workers")
 extra+=(--extraction-workers "${LC_EXTRACTION_WORKERS:-1}")
+if [[ "${LC_BOUNDED_STAGES:-0}" == 1 ]]; then
+  # Keep expendable generated indexes outside the archived workspace.
+  mkdir "$TMPDIR/stage-spools"
+  extra+=(--spool-root "$TMPDIR/stage-spools")
+fi
 if [[ "${LC_RESUME_VERIFICATION:-0}" == 1 ]]; then extra+=(--resume-verification); fi
 if [[ -n "${LC_LIMIT:-}" ]]; then extra+=(--limit "$LC_LIMIT"); fi
 if [[ -n "${LC_SELECTION_FILE:-}" ]]; then

@@ -94,6 +94,16 @@ from these caches; incomplete shard tables are never exported as final results.
 Use one controller per corpus. Resource exhaustion can still produce inconclusive
 results and is retried on resume.
 
+For larger corpora, `LC_BOUNDED_STAGES=1` opts the full batch driver into serial
+normalization, deduplication, verification and export using job-local JSONL and
+SQLite spools. Set both worker counts to one. Spools are created exclusively
+outside the archived workspace; failed spools remain on the node for diagnosis.
+The ordinary workspace retains complete reports, stage markers and checking
+caches for recovery. A small extraction summary binds the visited original-row
+count to the full report checksum and normalized state; bounded verification
+resume refuses older checkpoints without that summary. Full runs still require
+their own successful processing, checksum archive and independent audit.
+
 For `euler_full.sbatch`, request the matching allocation (for example,
 `--cpus-per-task=8 --mem-per-cpu=12G`) and set `LC_VERIFY_WORKERS=8`.
 The runner uses a Slurm step bound to its allocated cores and rejects workers above
