@@ -183,3 +183,88 @@ def test_disk_merge_empty_and_input_failure(tmp_path):
     # Failure closes the connection, and a later attempt cannot reuse the DB.
     with sqlite3.connect(database) as connection:
         assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+
+
+@pytest.mark.parametrize("unique", [False, True])
+def test_disk_validation_matches_memory_and_forward_references(tmp_path, unique):
+    from lean_corpus.disk_schema import validate_occurrences, validate_parquet
+
+    p = problem()
+    data = tables([p], [proof(p), proof(p, "by sorry")])
+    if not unique:
+        data["problems"].append(dict(p))
+        data["provenance"].append(dict(data["provenance"][0]))
+    validate(data, unique=unique)
+    expected = {k: len(v) for k, v in data.items()}
+    # Proofs precede their problem and all source references precede provenance.
+    occurrences = ((name, row) for name in ("proofs", "problems", "provenance")
+                   for row in data[name])
+    assert validate_occurrences(occurrences, tmp_path / "stream.db", unique) == expected
+    write_tables(tmp_path / "input", data, unique=unique)
+    assert validate_parquet(tmp_path / "input", tmp_path / "parquet.db", unique,
+                            batch_size=1) == expected
+    with pytest.raises(FileExistsError):
+        validate_parquet(tmp_path / "input", tmp_path / "parquet.db", unique)
+
+
+@pytest.mark.parametrize("fault, message", [
+    ("duplicate", "duplicate problems id"),
+    ("null", "problems.formal_statement cannot be null"),
+    ("empty", "problems.target_name cannot be empty"),
+    ("refs", "empty source_refs"),
+    ("location", "invalid source reference"),
+    ("license", "invalid license_refs"),
+    ("status", "invalid verification status"),
+    ("problem", "dangling problem foreign key"),
+    ("source", "dangling provenance foreign key"),
+])
+def test_disk_validation_preserves_all_existing_rejections(tmp_path, fault, message):
+    from lean_corpus.disk_schema import validate_occurrences
+
+    p = problem()
+    data = tables([p], [proof(p)])
+    if fault == "duplicate":
+        data["problems"].append(dict(p))
+    elif fault == "null":
+        p["formal_statement"] = None
+    elif fault == "empty":
+        p["target_name"] = "  "
+    elif fault == "refs":
+        p["source_refs"] = []
+    elif fault == "location":
+        p["source_refs"][0]["location"] = ""
+    elif fault == "license":
+        data["provenance"][0]["license_refs"] = [None]
+    elif fault == "status":
+        data["proofs"][0]["verification_status"] = "upstream_valid"
+    elif fault == "problem":
+        data["proofs"][0]["problem_id"] = "missing"
+    elif fault == "source":
+        data["proofs"][0]["source_refs"][0]["source_id"] = "missing"
+    with pytest.raises(ValueError, match=message):
+        validate(data)
+    database = tmp_path / "rejection.db"
+    with pytest.raises(ValueError, match=message):
+        validate_occurrences(((k, r) for k, rows in data.items() for r in rows),
+                             database)
+    assert database.exists()
+
+
+def test_disk_validation_rejects_schema_and_iterator_failures(tmp_path):
+    import pyarrow as pa
+    from lean_corpus.disk_schema import validate_occurrences, validate_parquet
+
+    data = tables([], [])
+    write_tables(tmp_path / "input", data)
+    pq.write_table(pa.table({"id": ["wrong schema"]}),
+                   tmp_path / "input" / "problems.parquet")
+    with pytest.raises(ValueError, match="unexpected problems schema"):
+        validate_parquet(tmp_path / "input", tmp_path / "schema.db")
+
+    def broken():
+        yield "problems", problem()
+        raise RuntimeError("incomplete input")
+
+    with pytest.raises(RuntimeError, match="incomplete input"):
+        validate_occurrences(broken(), tmp_path / "broken.db")
+    assert validate_occurrences(iter(()), tmp_path / "empty.db") == dict.fromkeys(SCHEMAS, 0)

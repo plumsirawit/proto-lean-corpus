@@ -55,41 +55,46 @@ SCHEMAS = {
 }
 
 
+def validate_rows(name, rows, unique=True):
+    """Validate row invariants; callers separately enforce cross-table keys."""
+    ids = set()
+    for row in rows:
+        for field in SCHEMAS[name]:
+            value = row.get(field.name)
+            if not field.nullable and value is None:
+                raise ValueError(f"{name}.{field.name} cannot be null")
+            if isinstance(value, str) and not field.nullable and not value.strip():
+                raise ValueError(f"{name}.{field.name} cannot be empty")
+        if unique and row["id"] in ids:
+            raise ValueError(f"duplicate {name} id")
+        ids.add(row["id"])
+        if name != "provenance":
+            if not row["source_refs"]:
+                raise ValueError("empty source_refs")
+            for ref in row["source_refs"]:
+                if (
+                    not isinstance(ref, dict)
+                    or not ref.get("source_id")
+                    or not ref.get("location")
+                ):
+                    raise ValueError("invalid source reference")
+        if name == "provenance" and (
+            not isinstance(row["license_refs"], list)
+            or any(not isinstance(x, str) or not x for x in row["license_refs"])
+        ):
+            raise ValueError("invalid license_refs")
+        if name == "proofs" and row["verification_status"] not in {
+            "unverified",
+            "valid",
+            "invalid",
+            "inconclusive",
+        }:
+            raise ValueError("invalid verification status")
+
+
 def validate(tables, unique=True):
     for name, rows in tables.items():
-        ids = set()
-        for row in rows:
-            for field in SCHEMAS[name]:
-                value = row.get(field.name)
-                if not field.nullable and value is None:
-                    raise ValueError(f"{name}.{field.name} cannot be null")
-                if isinstance(value, str) and not field.nullable and not value.strip():
-                    raise ValueError(f"{name}.{field.name} cannot be empty")
-            if unique and row["id"] in ids:
-                raise ValueError(f"duplicate {name} id")
-            ids.add(row["id"])
-            if name != "provenance":
-                if not row["source_refs"]:
-                    raise ValueError("empty source_refs")
-                for ref in row["source_refs"]:
-                    if (
-                        not isinstance(ref, dict)
-                        or not ref.get("source_id")
-                        or not ref.get("location")
-                    ):
-                        raise ValueError("invalid source reference")
-            if name == "provenance" and (
-                not isinstance(row["license_refs"], list)
-                or any(not isinstance(x, str) or not x for x in row["license_refs"])
-            ):
-                raise ValueError("invalid license_refs")
-            if name == "proofs" and row["verification_status"] not in {
-                "unverified",
-                "valid",
-                "invalid",
-                "inconclusive",
-            }:
-                raise ValueError("invalid verification status")
+        validate_rows(name, rows, unique=unique)
     problems = {r["id"] for r in tables["problems"]}
     sources = {r["id"] for r in tables["provenance"]}
     if any(r["problem_id"] not in problems for r in tables["proofs"]):
