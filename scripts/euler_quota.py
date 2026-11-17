@@ -3,6 +3,7 @@
 import argparse
 import csv
 import io
+import json
 from pathlib import Path
 import subprocess
 import time
@@ -15,7 +16,16 @@ def check(path, reserve_bytes=0, reserve_files=0, fraction=0.8):
         raise ValueError(
             "nonnegative reserves and a fraction between zero and one are required"
         )
-    target = Path(path).resolve()
+    # Resolving a path can itself block on an unavailable shared filesystem.
+    # Keep symlink-aware destination matching, but bound that lookup separately
+    # from the quota RPC. No filesystem lookup in this process precedes it.
+    resolved = subprocess.run(
+        [sys.executable, "-c",
+         "import json,sys; from pathlib import Path; "
+         "print(json.dumps(str(Path(sys.argv[1]).resolve())))", str(path)],
+        text=True, capture_output=True, check=True, timeout=10,
+    )
+    target = Path(json.loads(resolved.stdout))
     quota_command = shutil.which("lquota") or "/cluster/software/bin/lquota"
     # Query the destination filesystem; unrelated home quota RPC failures must not
     # block a scratch checkpoint. Any failure for this destination still aborts.
@@ -63,7 +73,7 @@ def wait_for_quota(path, reserve_bytes=0, reserve_files=0, wait_seconds=900):
     """Hold node-local checkpoints through outages; never authorize unchecked IO.
 
     Each check retains its bounded RPC retries. The retry window is finite; a
-    last check can take up to 93 seconds beyond it. Margin rejections also wait
+    last check can take up to 103 seconds beyond it. Margin rejections also wait
     for actual space to be freed, with no deletion or cached-quota fallback.
     """
     if wait_seconds < 0 or reserve_bytes < 0 or reserve_files < 0:

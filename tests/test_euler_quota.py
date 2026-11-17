@@ -92,3 +92,43 @@ def test_checkpoint_quota_wait_expires_closed(tmp_path, monkeypatch):
     with pytest.raises(subprocess.TimeoutExpired):
         wait(tmp_path, 500, 20, wait_seconds=45)
     assert len(calls) == 3 and clock[0] == 45
+
+
+def test_quota_path_lookup_is_bounded_before_rpc(tmp_path, monkeypatch):
+    check = runpy.run_path("scripts/euler_quota.py")["check"]
+    calls = []
+
+    def resolve(command, **kwargs):
+        calls.append((command, kwargs))
+        raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+
+    monkeypatch.setattr(subprocess, "run", resolve)
+    monkeypatch.setattr(
+        subprocess, "check_output",
+        lambda *a, **k: pytest.fail("unresolved destination must not query quota"),
+    )
+    with pytest.raises(subprocess.TimeoutExpired):
+        check(tmp_path)
+    assert len(calls) == 1 and calls[0][1]["timeout"] == 10
+    assert calls[0][0][-1] == str(tmp_path)
+
+
+def test_quota_symlink_uses_resolved_filesystem(tmp_path, monkeypatch):
+    check = runpy.run_path("scripts/euler_quota.py")["check"]
+    destination = tmp_path / "destination"
+    destination.mkdir()
+    link = tmp_path / "link"
+    link.symlink_to(destination, target_is_directory=True)
+    calls = []
+
+    def query(command, **kwargs):
+        calls.append(command)
+        return (
+            "Storage location|Quota type|Used|Soft quota|Hard quota|\n"
+            f"{destination}|space|100|1000|1100|\n"
+            f"{destination}|files|10|1000|1100|\n"
+        )
+
+    monkeypatch.setattr(subprocess, "check_output", query)
+    check(link, reserve_bytes=500, reserve_files=20)
+    assert calls[0][-1] == str(destination)
