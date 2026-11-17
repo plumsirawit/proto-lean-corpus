@@ -13,7 +13,7 @@ from pathlib import Path
 import tarfile
 import time
 
-from euler_quota import check
+from euler_quota import wait_for_quota
 from overnight_controller import atomic, now
 from lean_corpus.acquire import included, registry, selected_snapshots
 from lean_corpus.common import file_hash, text
@@ -87,8 +87,8 @@ def main():
         atomic(out / 'progress.json', {**status, 'at': now(), 'files_total': len(entries),
                'files_parsed': len(completed), 'occurrences': len(records), 'diagnostic_attempts': len(failures)})
         size = sum(f.stat().st_size + 2048 for f in workspace.rglob('*') if f.is_file())
-        check(args.stage, size + 16 * 1024**2, 8)
-        check(args.control, 4 * 1024**2, 8)
+        wait_for_quota(args.stage, size + 16 * 1024**2, 8)
+        wait_for_quota(args.control, 4 * 1024**2, 8)
         generation += 1
         archive = args.stage / f'library-inventory-{args.source}-{status["job_id"]}-{generation}.tar'
         assert not archive.exists()

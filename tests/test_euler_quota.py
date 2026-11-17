@@ -57,3 +57,38 @@ def test_quota_preserves_rpc_failure_diagnostic(tmp_path, monkeypatch):
     monkeypatch.setattr(time, "sleep", lambda _: None)
     with pytest.raises(RuntimeError, match="Lustre quota temporarily unavailable"):
         check(tmp_path)
+
+
+def test_checkpoint_quota_wait_requires_fresh_success(tmp_path, monkeypatch):
+    wait = runpy.run_path("scripts/euler_quota.py")["wait_for_quota"]
+    clock = [0]
+    calls = []
+
+    def query(path, reserve_bytes, reserve_files):
+        calls.append((path, reserve_bytes, reserve_files))
+        if len(calls) < 3:
+            raise RuntimeError("quota margin exceeded: space")
+
+    monkeypatch.setitem(wait.__globals__, "check", query)
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(time, "sleep", lambda n: clock.__setitem__(0, clock[0] + n))
+    wait(tmp_path, 500, 20, wait_seconds=90)
+    assert calls == [(tmp_path, 500, 20)] * 3
+    assert clock[0] == 60
+
+
+def test_checkpoint_quota_wait_expires_closed(tmp_path, monkeypatch):
+    wait = runpy.run_path("scripts/euler_quota.py")["wait_for_quota"]
+    clock = [0]
+    calls = []
+
+    def query(*args):
+        calls.append(args)
+        raise subprocess.TimeoutExpired("lquota", 30)
+
+    monkeypatch.setitem(wait.__globals__, "check", query)
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(time, "sleep", lambda n: clock.__setitem__(0, clock[0] + n))
+    with pytest.raises(subprocess.TimeoutExpired):
+        wait(tmp_path, 500, 20, wait_seconds=45)
+    assert len(calls) == 3 and clock[0] == 45

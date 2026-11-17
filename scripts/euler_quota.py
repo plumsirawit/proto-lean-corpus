@@ -7,6 +7,7 @@ from pathlib import Path
 import subprocess
 import time
 import shutil
+import sys
 
 
 def check(path, reserve_bytes=0, reserve_files=0, fraction=0.8):
@@ -56,6 +57,28 @@ def check(path, reserve_bytes=0, reserve_files=0, fraction=0.8):
         found.add(kind)
     if found != {"space", "files"}:
         raise RuntimeError("both space and file quotas are required")
+
+
+def wait_for_quota(path, reserve_bytes=0, reserve_files=0, wait_seconds=900):
+    """Hold node-local checkpoints through outages; never authorize unchecked IO.
+
+    Each check retains its bounded RPC retries. The retry window is finite; a
+    last check can take up to 93 seconds beyond it. Margin rejections also wait
+    for actual space to be freed, with no deletion or cached-quota fallback.
+    """
+    if wait_seconds < 0 or reserve_bytes < 0 or reserve_files < 0:
+        raise ValueError("nonnegative quota reserves and retry window required")
+    deadline = time.monotonic() + wait_seconds
+    while True:
+        try:
+            return check(path, reserve_bytes, reserve_files)
+        except (RuntimeError, subprocess.TimeoutExpired, subprocess.CalledProcessError) as error:
+            remaining = deadline - time.monotonic()
+            print(f"Quota gate waiting for {path}: {error}; retry window {max(0, remaining):.0f}s",
+                  file=sys.stderr, flush=True)
+            if remaining <= 0:
+                raise
+            time.sleep(min(30, remaining))
 
 
 if __name__ == "__main__":
