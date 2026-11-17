@@ -58,21 +58,28 @@ def require_normalized_complete(work):
         )
 
 
-def deduplicate(work):
+def deduplicate(work, *, spool_dir=None):
     work = Path(work)
     require_normalized_complete(work)
+    if spool_dir is not None:
+        from .disk_deduplicate import deduplicate_spooled
+
+        return deduplicate_spooled(work, spool_dir)
     tables, report = merge(read_tables(work / "normalized"))
     write_tables(work / "canonical", tables)
     write_json(
         work / "canonical" / "state.json", read_json(work / "normalized" / "state.json")
     )
     write_json(work / "reports" / "deduplication.json", report)
+    (work / "deduplication-incomplete.json").unlink(missing_ok=True)
     return report["after"]
 
 
 def require_current(work):
     work = Path(work)
     require_normalized_complete(work)
+    if (work / "deduplication-incomplete.json").exists():
+        raise ValueError("deduplication incomplete or failed: rerun deduplicate")
     if read_json(work / "normalized" / "state.json") != read_json(
         work / "canonical" / "state.json"
     ):

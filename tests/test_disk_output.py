@@ -56,8 +56,10 @@ def test_failed_spooling_keeps_previous_tables(tmp_path, failure):
     elif failure == "status":
         data["proofs"][0]["verification_status"] = "unknown"
     else:
+        first = data["proofs"][0]
+
         def broken():
-            yield data["proofs"][0]
+            yield first
             raise RuntimeError("injected interrupted output")
         data["proofs"] = broken()
     with pytest.raises((ValueError, RuntimeError)):
@@ -100,12 +102,16 @@ def test_normalization_failure_blocks_downstream(tmp_path, monkeypatch, spooled)
 
 
 def test_normalization_matches_tables_reports_and_state(tmp_path, monkeypatch):
-    from lean_corpus.acquire import acquire
+    from lean_corpus.acquire import acquire, check_snapshot
+    from lean_corpus.common import write_json
     import lean_corpus.normalize as module
 
     work = tmp_path / "work"
-    acquire(work, "configs/sources.yaml", "numina_math_lean",
-            Path("tests/fixtures/numina").resolve())
+    fixture = Path("tests/fixtures/numina").resolve()
+    sid = acquire(work, "configs/sources.yaml", "numina_math_lean", fixture)
+    env = check_snapshot(work / "snapshots" / sid)["environment_id"]
+    write_json(work / "runtimes" / f"{env}.json",
+               {"project_dir": str(fixture), "lean_path": []})
 
     def adapter(row, environment, runtime):
         return {"task": row["formal_statement"], "target": "t", "informal": None,
@@ -115,6 +121,7 @@ def test_normalization_matches_tables_reports_and_state(tmp_path, monkeypatch):
                 "_parser_imports_resolved": False}
 
     monkeypatch.setitem(module.ADAPTERS, "numina_math_lean", adapter)
+    module.normalize(work, "configs/sources.yaml")  # Warm the same extraction cache.
     expected = module.normalize(work, "configs/sources.yaml")
     before = read_tables(work / "normalized")
     reports = {p.name: read_json(p) for p in (work / "reports").glob("*.json")}
