@@ -20,6 +20,8 @@ def export(
 ):
     work, output = Path(work), Path(output)
     require_current(work)
+    if (work / "verification-incomplete.json").exists():
+        raise ValueError("verification incomplete or failed: rerun verify")
     if output.exists():
         raise ValueError("export destination already exists; use a new directory")
     tables = read_tables(work / "canonical")

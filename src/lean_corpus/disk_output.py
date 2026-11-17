@@ -6,9 +6,11 @@ and row policies. A stage marker must guard multi-file publication.
 """
 
 from datetime import datetime
+from collections.abc import Mapping
 import hashlib
 import json
 import os
+import sqlite3
 from pathlib import Path
 
 import pyarrow as pa
@@ -45,11 +47,46 @@ class RowSpool:
                 yield json.loads(line)
 
 
+class DiskMap(Mapping):
+    """Exclusive job-local JSON mapping with a bounded SQLite page cache."""
+
+    def __init__(self, path):
+        with Path(path).open("xb"):
+            pass
+        self.connection = sqlite3.connect(path)
+        self.connection.execute("PRAGMA cache_size=-4096")
+        self.connection.execute("CREATE TABLE entries (key TEXT PRIMARY KEY, value TEXT)")
+
+    def __getitem__(self, key):
+        row = self.connection.execute(
+            "SELECT value FROM entries WHERE key=?", (key,)
+        ).fetchone()
+        if row is None:
+            raise KeyError(key)
+        return json.loads(row[0])
+
+    def __setitem__(self, key, value):
+        self.connection.execute("INSERT OR REPLACE INTO entries VALUES (?,?)",
+                                (key, canonical(value)))
+
+    def __iter__(self):
+        for row in self.connection.execute("SELECT key FROM entries ORDER BY key"):
+            yield row[0]
+
+    def __len__(self):
+        return self.connection.execute("SELECT count(*) FROM entries").fetchone()[0]
+
+    def close(self):
+        self.connection.commit()
+        self.connection.close()
+
+
 def fragments(value):
     """Yield exactly canonical(value), admitting RowSpool in place of lists."""
-    if isinstance(value, dict):
+    if isinstance(value, (dict, DiskMap)):
         yield "{"
-        for index, key in enumerate(sorted(value)):
+        keys = value if isinstance(value, DiskMap) else sorted(value)
+        for index, key in enumerate(keys):
             if index:
                 yield ","
             yield canonical(key) + ":"

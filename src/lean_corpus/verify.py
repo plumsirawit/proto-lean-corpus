@@ -35,6 +35,7 @@ def cache_key(problem, proof, environment, policy=POLICY, backend="process"):
             "implementation": __version__,
             "helper": implementation_hash(),
             "runner": file_hash(Path(__file__)),
+            "disk_runner": file_hash(Path(__file__).with_name("disk_verify.py")),
             "sandbox": file_hash(Path(__file__).with_name("isolation.py")),
             "interface": file_hash(Path(__file__).with_name("lean.py")),
         }
@@ -137,7 +138,11 @@ def check_proof(problem, proof, environment, runtime, baseline, timeout=60):
         return {"status": "inconclusive", "reason": e.reason, "detail": e.detail}
 
 
-def verify(work, limit=None, timeout=60):
+def verify(work, limit=None, timeout=60, *, spool_dir=None):
+    if spool_dir is not None:
+        from .disk_verify import verify_spooled
+
+        return verify_spooled(work, spool_dir, limit=limit, timeout=timeout)
     work = Path(work)
     require_current(work)
     tables = read_tables(work / "canonical")
@@ -225,6 +230,7 @@ def verify(work, limit=None, timeout=60):
         work / "reports" / "verification.json",
         {"policy": POLICY, "limit": limit, "attempts": reports, "problems": baselines},
     )
+    (work / "verification-incomplete.json").unlink(missing_ok=True)
     return {
         status: sum(p["verification_status"] == status for p in tables["proofs"])
         for status in ("unverified", "valid", "invalid", "inconclusive")
