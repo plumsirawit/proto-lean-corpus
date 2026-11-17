@@ -174,4 +174,6 @@ def test_bounded_pipeline_uses_real_kernel_and_shared_caches(real_lean, tmp_path
     report = read_json(work / 'reports/verification.json')
     assert verify(work, spool_dir=tmp_path / 'resume') == expected
     assert read_json(work / 'reports/verification.json') == report
-    assert export(work, tmp_path / 'release')['verification_status'] == expected
+    assert export(work, tmp_path / 'release')['verification_status'] == {
+        status: count for status, count in expected.items() if count
+    }
