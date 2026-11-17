@@ -56,6 +56,7 @@ def main():
     out = workspace / 'library-inventory'
     out.mkdir(exist_ok=True)
     identity = {'snapshot_id': snapshot.name, 'implementation': implementation_digest(),
+                'inventory_implementation': file_hash(Path(__file__)),
                 'environment_id': runtime.stem, 'memory_mb': mapping.get('memory_mb'),
                 'parse_timeout': mapping.get('parse_timeout'), 'runner': mapping.get('runner')}
     marker = out / 'identity.json'
@@ -77,7 +78,8 @@ def main():
                and Path(e['path']).name != 'lakefile.lean'
                and included(e['path'], config.get('include'))]
     start = time.monotonic(); last = start; generation = 0; saved = []
-    status = {'complete': False, 'source': args.source, 'job_id': os.environ['SLURM_JOB_ID'], **identity}
+    status = {'complete': False, 'source': args.source, 'job_id': os.environ['SLURM_JOB_ID'],
+              'code_revision': os.environ['LC_CODE_REVISION'], **identity}
 
     def checkpoint():
         nonlocal generation, saved, last
