@@ -177,3 +177,7 @@ def test_bounded_pipeline_uses_real_kernel_and_shared_caches(real_lean, tmp_path
     assert export(work, tmp_path / 'release')['verification_status'] == {
         status: count for status, count in expected.items() if count
     }
+    summary = export(work, tmp_path / 'bounded-release', spool_dir=tmp_path / 'export-spool')
+    assert read_json(summary['quality_report']) == read_json(tmp_path / 'release/quality.json')
+    for view in ['', 'views/verified', 'views/proof-discovery']:
+        assert read_tables(tmp_path / 'release' / view) == read_tables(tmp_path / 'bounded-release' / view)

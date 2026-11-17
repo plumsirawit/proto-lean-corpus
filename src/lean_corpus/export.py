@@ -1,5 +1,7 @@
 from collections import Counter, defaultdict
+from contextlib import ExitStack
 from pathlib import Path
+import os
 import shutil
 import subprocess
 import tempfile
@@ -15,19 +17,74 @@ from .runtime import RuntimeGuard
 DATA_LICENSE = "Our original contributions and compilation/database rights, to the extent applicable, are licensed under CC BY-SA 4.0. Third-party material retains its applicable upstream licenses, identified in the source manifest and accompanying notices. This license does not replace or restrict permissions independently granted by upstream licensors."
 
 
+def _copy_cache_tree(source, destination):
+    """Copy flat or nested cache directories without listing every entry in RAM."""
+    destination.mkdir(parents=True, exist_ok=True)
+    with os.scandir(source) as entries:
+        for entry in entries:
+            target = destination / entry.name
+            if entry.is_dir():
+                _copy_cache_tree(Path(entry.path), target)
+            else:
+                shutil.copy2(entry.path, target)
+
+
 def export(
-    work, output, sources="configs/sources.yaml", pipeline="configs/pipeline.yaml"
+    work, output, sources="configs/sources.yaml", pipeline="configs/pipeline.yaml",
+    *, spool_dir=None,
 ):
+    """Export locally; optional exclusive job-local spools bound corpus memory.
+
+    In spool mode the complete quality document stays in quality.json; the return
+    value contains its counts/status summary and path, without loading ID lists.
+    """
+    with ExitStack() as resources:
+        return _export(work, output, sources, pipeline, spool_dir, resources)
+
+
+def _export(work, output, sources, pipeline, spool_dir, resources):
     work, output = Path(work), Path(output)
     require_current(work)
     if (work / "verification-incomplete.json").exists():
         raise ValueError("verification incomplete or failed: rerun verify")
     if output.exists():
         raise ValueError("export destination already exists; use a new directory")
-    tables = read_tables(work / "canonical")
-    stale = []
+    if spool_dir is None:
+        tables = read_tables(work / "canonical")
+        stale = []
+        problems = {r["id"]: r for r in tables["problems"]}
+        write_output = write_tables
+        write_quality = write_json
+        input_hashes = None
+    else:
+        from .disk_merge import parquet_rows
+        from .disk_output import DiskMap, RowSpool, write_document, write_spooled_tables
+        from .disk_schema import validate_parquet
+
+        spool_dir = Path(spool_dir)
+        spool_dir.mkdir()
+        input_hashes = {name: file_hash(work / "canonical" / f"{name}.parquet")
+                        for name in SCHEMAS}
+        validate_parquet(work / "canonical", spool_dir / "input.sqlite")
+        tables = {name: RowSpool(spool_dir / f"input-{name}.jsonl") for name in SCHEMAS}
+        for name, row in parquet_rows(work / "canonical"):
+            if name == "provenance":
+                row = {**row, "acquired_at": row["acquired_at"].isoformat()}
+            tables[name].append(row)
+        problems = DiskMap(spool_dir / "problems.sqlite")
+        resources.callback(problems.close)
+        for row in tables["problems"]:
+            problems[row["id"]] = row
+        stale = RowSpool(spool_dir / "stale.jsonl")
+        corrected = RowSpool(spool_dir / "corrected-proofs.jsonl")
+        generations = iter(range(3))
+
+        def write_output(directory, rows):
+            write_spooled_tables(directory, rows,
+                                 spool_dir / f"tables-{next(generations)}")
+
+        write_quality = write_document
     guard = RuntimeGuard(work)
-    problems = {r["id"]: r for r in tables["problems"]}
     # Never export a stale 'valid' status after environment/policy changes.
     for proof in tables["proofs"]:
         if proof["verification_status"] in {"valid", "invalid"}:
@@ -47,22 +104,40 @@ def export(
             if not matches:
                 proof["verification_status"] = "unverified"
                 stale.append(proof["id"])
+        if spool_dir is not None:
+            corrected.append(proof)
+    if spool_dir is not None:
+        tables["proofs"] = corrected
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=output.parent) as temporary:
         dest = Path(temporary) / "release"
-        write_tables(dest, tables)
-        verified = [p for p in tables["proofs"] if p["verification_status"] == "valid"]
-        verified_ids = {p["problem_id"] for p in verified}
-        write_tables(dest / "views" / "proof-discovery", {**tables, "proofs": []})
-        write_tables(
+        write_output(dest, tables)
+        if spool_dir is None:
+            verified = [p for p in tables["proofs"] if p["verification_status"] == "valid"]
+            verified_ids = {p["problem_id"] for p in verified}
+            verified_problems = [p for p in tables["problems"] if p["id"] in verified_ids]
+        else:
+            verified = RowSpool(spool_dir / "verified-proofs.jsonl")
+            verified_ids = DiskMap(spool_dir / "verified-ids.sqlite")
+            resources.callback(verified_ids.close)
+            for proof in tables["proofs"]:
+                if proof["verification_status"] == "valid":
+                    verified.append(proof)
+                    verified_ids[proof["problem_id"]] = True
+            verified_problems = RowSpool(spool_dir / "verified-problems.jsonl")
+            for problem in tables["problems"]:
+                if problem["id"] in verified_ids:
+                    verified_problems.append(problem)
+        write_output(dest / "views" / "proof-discovery", {**tables, "proofs": []})
+        write_output(
             dest / "views" / "verified",
             {
                 **tables,
-                "problems": [p for p in tables["problems"] if p["id"] in verified_ids],
+                "problems": verified_problems,
                 "proofs": verified,
             },
         )
-        review = []
+        review = [] if spool_dir is None else RowSpool(spool_dir / "review.jsonl")
         for source in tables["provenance"]:
             sid = source["id"]
             snapshot = work / "snapshots" / sid
@@ -83,8 +158,14 @@ def export(
                 for reason in manifest["release_review"]
             )
             shutil.copytree(work / "locks", dest / "locks", dirs_exist_ok=True)
-        env_ids = {p["environment_id"] for p in tables["problems"]}
-        for env_id in sorted(env_ids):
+        if spool_dir is None:
+            env_ids = {p["environment_id"] for p in tables["problems"]}
+        else:
+            env_ids = DiskMap(spool_dir / "environments.sqlite")
+            resources.callback(env_ids.close)
+            for problem in tables["problems"]:
+                env_ids[problem["environment_id"]] = True
+        for env_id in (sorted(env_ids) if spool_dir is None else env_ids):
             path = work / "environments" / f"{env_id}.json"
             env = read_json(path)
             if (
@@ -103,14 +184,20 @@ def export(
         # Cache artifacts contain only isolated Lean logs and portable identifiers.
         for name in ("verification-cache", "statement-cache"):
             if (work / name).exists():
-                shutil.copytree(work / name, dest / name)
+                _copy_cache_tree(work / name, dest / name)
         for file in (sources, pipeline, "pyproject.toml", "uv.lock", "lean-toolchain"):
             p = Path(file)
             if p.is_file():
                 (dest / "build").mkdir(exist_ok=True)
                 shutil.copyfile(p, dest / "build" / p.name)
         by_source = defaultdict(Counter)
-        source_keys = {r["id"]: r["dataset_name"] for r in tables["provenance"]}
+        if spool_dir is None:
+            source_keys = {r["id"]: r["dataset_name"] for r in tables["provenance"]}
+        else:
+            source_keys = DiskMap(spool_dir / "source-keys.sqlite")
+            resources.callback(source_keys.close)
+            for row in tables["provenance"]:
+                source_keys[row["id"]] = row["dataset_name"]
         for name in ("problems", "proofs"):
             for row in tables[name]:
                 for key in {
@@ -127,7 +214,7 @@ def export(
             "stale_statuses_reset": stale,
             "release_review": review,
         }
-        write_json(dest / "quality.json", quality)
+        write_quality(dest / "quality.json", quality)
         try:
             revision = subprocess.check_output(
                 ["git", "rev-parse", "HEAD"], text=True
@@ -171,5 +258,13 @@ def export(
         )
         guard.finish()
         require_current(work)
+        if input_hashes is not None and input_hashes != {
+            name: file_hash(work / "canonical" / f"{name}.parquet") for name in SCHEMAS
+        }:
+            raise ValueError("canonical data changed during export")
         dest.rename(output)
+    if spool_dir is not None:
+        return {"counts": quality["counts"],
+                "verification_status": quality["verification_status"],
+                "quality_report": str(output / "quality.json")}
     return quality
