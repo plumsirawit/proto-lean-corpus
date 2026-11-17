@@ -441,7 +441,7 @@ def putnam_bench(row, env, runtime):
     return result
 
 
-def conversation(result, messages, env, runtime, prefix="messages"):
+def conversation(result, messages, env, runtime, prefix="messages", *, split_blocks=False, task_context=None):
     if not isinstance(messages, list):
         result["reports"].append(
             {
@@ -453,7 +453,7 @@ def conversation(result, messages, env, runtime, prefix="messages"):
         return
     for i, message in enumerate(messages):
         if isinstance(message, list):
-            conversation(result, message, env, runtime, f"{prefix}/{i}")
+            conversation(result, message, env, runtime, f"{prefix}/{i}", split_blocks=split_blocks, task_context=task_context)
         elif isinstance(message, dict) and message.get("role") == "assistant":
             content = message.get("content")
             if content is not None and not isinstance(content, str):
@@ -465,6 +465,23 @@ def conversation(result, messages, env, runtime, prefix="messages"):
                     }
                 )
                 continue
+            if split_blocks and isinstance(content, str):
+                blocks = re.findall(r"```(?:lean4?|Lean4?)\s*\n?([\s\S]*?)```", content)
+                if blocks:
+                    for j, block in enumerate(blocks):
+                        value = block
+                        # Goedel supplies theorem-only completions in the prompt's
+                        # fixed context. Reuse that exact context, never any new
+                        # response commands. proof_term still compares the whole
+                        # resulting statement/context before separating its body.
+                        if task_context and re.match(r"\s*(?:theorem|lemma)\s", block):
+                            before, after = task_context
+                            value = before + block + after
+                        field = f"{prefix}/{i}/content"
+                        if len(blocks) > 1:
+                            field += f"/lean_blocks/{j}"
+                        add(result, value, field, env, runtime, explanation=content)
+                    continue
             add(
                 result,
                 content,
@@ -492,13 +509,21 @@ def goedel_prover_v2_sft(row, env, runtime):
         (i, m)
         for i, m in enumerate(messages)
         if m.get("role") == "user" and "```" in m.get("content", "")
+        and not re.match(r"The proof \(Round [0-9]+\) is not correct\. Following is the compilation error message", m.get("content", ""))
     ]
     if len(prompts) != 1:
         raise Unsupported("ambiguous conversation: expected one formal task prompt")
     i, prompt = prompts[0]
     result, _ = base(row, env, runtime, formal=code_block(prompt["content"]))
     result["statement_field"] = f"messages/{i}/content"
-    conversation(result, messages, env, runtime)
+    parsed = inspect(result["task"], env, runtime)
+    targets = [t for t in parsed["targets"] if t["name"] == result["target"]]
+    context = None
+    if len(targets) == 1:
+        start, end = targets[0]["command"]
+        data = result["task"].encode()
+        context = data[:start].decode(), data[end:].decode()
+    conversation(result, messages, env, runtime, split_blocks=True, task_context=context)
     return result
 
 

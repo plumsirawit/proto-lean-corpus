@@ -227,6 +227,37 @@ def test_source_forms(real_lean):
         ADAPTERS["nemotron_math_proofs_v1"]({"formal_statement": None}, real_lean, {})
 
 
+def test_goedel_scaffolds_and_feedback_keep_fixed_task(real_lean):
+    task = "import Lean\nopen Nat\n" + TASK
+    scaffold = TASK
+    complete = TASK.replace("by sorry", "by trivial")
+    changed = "theorem t : False := by trivial"
+    extra = complete + "\naxiom injected : False"
+    messages = [
+        {"role": "user", "content": f"Complete\n```lean4\n{task}\n```"},
+        {"role": "assistant", "content": f"Scaffold\n```lean4\n{scaffold}\n```\nComplete\n```lean4\n{complete}\n```"},
+        {"role": "user", "content": "The proof (Round 0) is not correct. Following is the compilation error message\n```lean4\nerror fragment\n```"},
+        {"role": "assistant", "content": f"```lean4\n{changed}\n```\n```lean4\n{extra}\n```"},
+    ]
+    result = ADAPTERS["goedel_prover_v2_sft"]({"messages": messages}, real_lean, {})
+    assert result["task"] == task
+    assert [a["proof"] for a in result["attempts"]] == ["by sorry", "by trivial"]
+    assert [a["field"] for a in result["attempts"]] == [
+        "messages/1/content/lean_blocks/0", "messages/1/content/lean_blocks/1"
+    ]
+    assert len(result["reports"]) == 2
+    assert all("changed target statement or context" in r["reason"] for r in result["reports"])
+    problem = {"id": "goedel", "formal_statement": task, "target_name": "t"}
+    baseline = check_problem(problem, real_lean, {})
+    for attempt, status in zip(result["attempts"], ("invalid", "valid")):
+        assert check_proof(problem, {"formal_proof": attempt["proof"]}, real_lean, {}, baseline)["status"] == status
+    # A second task prompt remains ambiguous; only the known compiler feedback
+    # envelope is treated as feedback.
+    messages.append({"role": "user", "content": f"New task\n```lean4\n{TASK}\n```"})
+    with pytest.raises(Unsupported, match="ambiguous conversation"):
+        ADAPTERS["goedel_prover_v2_sft"]({"messages": messages}, real_lean, {})
+
+
 def test_library_context(real_lean):
     path = Path("tests/fixtures/library/Example.lean")
     results = list(ADAPTERS["mathlib4"](path, real_lean, {}))
