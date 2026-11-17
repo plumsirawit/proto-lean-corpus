@@ -15,7 +15,8 @@ def runtime_for(work, env_id):
     return read_json(path) if path.exists() else {}
 
 
-def normalize(work, sources, selected=None, limit=None, selection=None):
+def normalize(work, sources, selected=None, limit=None, selection=None, *,
+              spool_dir=None):
     work = Path(work)
     marker = work / "normalization-incomplete.json"
     state = {
@@ -28,7 +29,8 @@ def normalize(work, sources, selected=None, limit=None, selection=None):
     write_json(marker, state)
     progress = {}
     try:
-        result = _normalize(work, sources, selected, limit, progress, selection)
+        result = _normalize(work, sources, selected, limit, progress, selection,
+                            spool_dir)
     except BaseException as error:
         write_json(
             marker,
@@ -45,7 +47,7 @@ def normalize(work, sources, selected=None, limit=None, selection=None):
     return result
 
 
-def _normalize(work, sources, selected, limit, progress, selection):
+def _normalize(work, sources, selected, limit, progress, selection, spool_dir=None):
     # Deferred import: the verifier imports runtime_for from this module.
     from .verify import validate_runtime
 
@@ -86,6 +88,20 @@ def _normalize(work, sources, selected, limit, progress, selection):
     config = registry(sources)
     tables = {"problems": [], "proofs": [], "provenance": []}
     reports, mapping, transforms = [], [], []
+    output_json, fingerprint = write_json, digest
+    if spool_dir is not None:
+        from .disk_output import (
+            RowSpool, spool_digest, write_document, write_spooled_tables,
+        )
+
+        spool_dir = Path(spool_dir)
+        spool_dir.mkdir()  # Never overwrite a failed or concurrently used spool.
+        tables = {name: RowSpool(spool_dir / f"{name}.jsonl") for name in tables}
+        reports, mapping, transforms = (
+            RowSpool(spool_dir / f"{name}.jsonl")
+            for name in ("reports", "mapping", "transforms")
+        )
+        output_json, fingerprint = write_document, spool_digest
     count = 0
     for snapshot, manifest in selected_snapshots(work, selected):
         key = manifest["source_key"]
@@ -313,8 +329,11 @@ def _normalize(work, sources, selected, limit, progress, selection):
             "implementation changed during normalization; rerun with frozen code"
         )
     # Stage replacement is deterministic; reruns never append duplicate artifacts.
-    write_tables(work / "normalized", tables, unique=False)
-    write_json(
+    if spool_dir is None:
+        write_tables(work / "normalized", tables, unique=False)
+    else:
+        write_spooled_tables(work / "normalized", tables, spool_dir / "tables")
+    output_json(
         work / "reports" / "extraction.json",
         {
             "input_occurrences": count,
@@ -328,12 +347,12 @@ def _normalize(work, sources, selected, limit, progress, selection):
             "cache_misses": cache.misses,
         },
     )
-    write_json(work / "reports" / "occurrences.json", mapping)
-    write_json(work / "reports" / "transformations.json", transforms)
+    output_json(work / "reports" / "occurrences.json", mapping)
+    output_json(work / "reports" / "transformations.json", transforms)
     # Changing normalized inputs invalidates all downstream stage products.
     write_json(
         work / "normalized" / "state.json",
-        {"fingerprint": digest(tables)},
+        {"fingerprint": fingerprint(tables)},
     )
     return {
         "problems": len(tables["problems"]),
