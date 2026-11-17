@@ -76,6 +76,13 @@ def main():
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             h.update(chunk)
     temporary.replace(archive)
+    # Verify the saved replacement before updating latest or pruning generations.
+    saved = hashlib.sha256()
+    with archive.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            saved.update(chunk)
+    if saved.hexdigest() != h.hexdigest():
+        raise RuntimeError("saved checkpoint checksum mismatch")
     checksum = archive.with_suffix(".tar.sha256")
     checksum.write_text(f"{h.hexdigest()}  {archive}\n")
     run_state = args.workspace / "full-run-state.json"

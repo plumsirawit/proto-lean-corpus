@@ -39,10 +39,23 @@ checking_directory=${checking_directory//:/---}
 export PATH="$ELAN_HOME/toolchains/$checking_directory/bin:$PATH"
 export LEAN_NUM_THREADS="${SLURM_CPUS_PER_TASK:-2}"
 runner_pid=""
+monitor_pid=""
+checkpoint() {
+  (
+    trap - EXIT TERM INT USR1
+    flock -x 9
+    "$python_bin" scripts/checkpoint_local.py --workspace "$workspace" \
+      --stage "$LC_STAGE" --job-id "$SLURM_JOB_ID" --phase periodic
+  ) 9>"$LC_STAGE/full-$SLURM_JOB_ID.lock"
+}
 finish() {
   status=$?
   trap - EXIT TERM INT USR1
   set +e
+  if [[ -n "$monitor_pid" ]]; then
+    kill "$monitor_pid" 2>/dev/null
+    wait "$monitor_pid" 2>/dev/null
+  fi
   if [[ -n "$runner_pid" ]] && kill -0 "$runner_pid" 2>/dev/null; then
     kill -TERM "$runner_pid"
     wait "$runner_pid"
@@ -52,6 +65,9 @@ finish() {
   "$python_bin" scripts/euler_quota.py "$LC_STAGE" --reserve-bytes "$((archive_bytes + 134217728))" --reserve-files 10
   quota_status=$?
   if [[ "$quota_status" -ne 0 ]]; then exit "$quota_status"; fi
+  # Serialize with an in-flight periodic archive before writing the final copy.
+  exec 9>"$LC_STAGE/full-$SLURM_JOB_ID.lock"
+  flock -x 9
   tar -cf "$archive.partial" -C "$TMPDIR" "$LC_SOURCE"
   archive_status=$?
   if [[ "$archive_status" -ne 0 ]]; then exit "$archive_status"; fi
@@ -101,5 +117,15 @@ srun --cpu-bind=cores --ntasks=1 --cpus-per-task="${SLURM_CPUS_PER_TASK:-2}" \
   --size "$LC_PILOT_SIZE" --workers "${LC_VERIFY_WORKERS:-2}" \
   --extraction-workers "${LC_EXTRACTION_WORKERS:-1}" "${extra[@]}" &
 runner_pid=$!
+(
+  trap - EXIT TERM INT USR1
+  while kill -0 "$runner_pid" 2>/dev/null; do
+    sleep "${LC_CHECKPOINT_SECONDS:-900}"
+    if kill -0 "$runner_pid" 2>/dev/null; then
+      checkpoint || printf 'Periodic checkpoint failed; previous generations retained\n' >&2
+    fi
+  done
+) &
+monitor_pid=$!
 wait "$runner_pid"
 runner_pid=""
