@@ -21,7 +21,8 @@ git clone --no-hardlinks --quiet "$LC_REPO" "$TMPDIR/code"
 git -C "$TMPDIR/code" checkout --quiet --detach "$LC_CODE_REVISION"
 export PYTHONPATH="$TMPDIR/code/src"
 cd "$TMPDIR/code"
-"$python_bin" scripts/euler_quota.py "$LC_STAGE" --reserve-bytes 2147483648 --reserve-files 20
+input_bytes=$(stat -c %s "$LC_INPUT_ARCHIVE")
+"$python_bin" scripts/euler_quota.py "$LC_STAGE" --reserve-bytes "$((input_bytes + 2147483648))" --reserve-files 20
 sha256sum -c "$LC_CHECKSUMS"
 sha256sum -c "$LC_INPUT_ARCHIVE.sha256"
 mkdir -p "$TMPDIR/project" "$TMPDIR/elan"
@@ -47,7 +48,8 @@ finish() {
     wait "$runner_pid"
   fi
   archive="$LC_STAGE/pilot-$LC_SOURCE-$LC_PILOT_SIZE-$SLURM_JOB_ID.tar"
-  "$python_bin" scripts/euler_quota.py "$LC_STAGE" --reserve-bytes 2147483648 --reserve-files 10
+  archive_bytes=$(du -sb "$workspace" | cut -f1)
+  "$python_bin" scripts/euler_quota.py "$LC_STAGE" --reserve-bytes "$((archive_bytes + 134217728))" --reserve-files 10
   quota_status=$?
   if [[ "$quota_status" -ne 0 ]]; then exit "$quota_status"; fi
   tar -cf "$archive.partial" -C "$TMPDIR" "$LC_SOURCE"
@@ -63,13 +65,16 @@ from lean_corpus.common import file_hash, write_json
 archive = Path(os.environ['LC_FINAL_ARCHIVE'])
 result = Path(os.environ['LC_LOCAL_WORKSPACE']) / 'results' / ('pilot-' + os.environ['LC_PILOT_SIZE']) / 'pilot-result.json'
 report = json.loads(result.read_text()) if result.exists() else {}
-write_json(Path(str(archive) + '.json'), {
+receipt = {
     'archive': str(archive), 'sha256': file_hash(archive),
     'runner_exit': int(os.environ['LC_RUNNER_EXIT']), 'pilot': report,
     'complete': os.environ['LC_RUNNER_EXIT'] == '0' and report.get('complete', False),
     'source': os.environ['LC_SOURCE'], 'size': int(os.environ['LC_PILOT_SIZE']),
     'code_revision': os.environ['LC_CODE_REVISION'], 'local_only': True,
-})
+}
+write_json(Path(str(archive) + '.json'), receipt)
+if os.environ.get('LC_RECEIPT_PATH'):
+    write_json(Path(os.environ['LC_RECEIPT_PATH']), receipt)
 PY
   metadata_status=$?
   if [[ "$metadata_status" -ne 0 ]]; then exit "$metadata_status"; fi

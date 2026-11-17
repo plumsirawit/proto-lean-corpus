@@ -100,6 +100,24 @@ def test_uncertain_submission_cannot_retry(tmp_path, monkeypatch):
     assert len(calls) == 1
 
 
+def test_reservations_follow_the_destination_filesystem(tmp_path, monkeypatch):
+    planned = step()
+    planned["reserve_bytes"] = 8 * 1024**3
+    (tmp_path / "controller-plan.json").write_text(json.dumps({"steps": [planned]}))
+    monkeypatch.setattr(
+        controller, "allocation", lambda: dict(cpus=0, memory_mib=0, jobs=[])
+    )
+    reservations = []
+    monkeypatch.setattr(controller, "check", lambda *args: reservations.append(args))
+    monkeypatch.setattr(controller.subprocess, "check_output", lambda *a, **k: "123\n")
+    controller.tick(tmp_path)
+    assert reservations == [
+        (tmp_path, 16 * 1024**2, 20),
+        (planned["stage"], 8 * 1024**3, planned["reserve_files"]),
+    ]
+    assert json.loads((tmp_path / "controller-state.json").read_text())["active"]["job_id"] == "123"
+
+
 def test_next_size_requires_agent_inspection(tmp_path, monkeypatch):
     first, audit, next_size = step(), step("audit"), step(size=100)
     (tmp_path / "controller-plan.json").write_text(

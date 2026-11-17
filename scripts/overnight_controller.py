@@ -230,8 +230,10 @@ def tick(control):
         ):
             save("waiting_for_resources", evidence)
             return
-        for location in (str(control), step["stage"]):
-            check(location, step["reserve_bytes"], step["reserve_files"])
+        # Home only receives compact control receipts/logs. Reserving the large
+        # scratch archive again against home would falsely stop larger sources.
+        check(control, 16 * 1024**2, 20)
+        check(step["stage"], step["reserve_bytes"], step["reserve_files"])
         name = "corpus-next-" + str(index) + "-" + digest[:10]
         if any(job["name"] == name for job in evidence["jobs"]):
             raise ValueError("Existing unrecorded matching job requires reconciliation")
