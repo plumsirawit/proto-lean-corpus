@@ -128,3 +128,14 @@ def test_next_size_requires_agent_inspection(tmp_path, monkeypatch):
     saved = json.loads((tmp_path / "controller-state.json").read_text())
     assert saved["status"] == "waiting_for_agent_inspection"
     assert saved["index"] == 2
+    inspection = tmp_path / "inspection-42.json"
+    inspection.write_text(json.dumps(dict(reviewed=True, audit_job_id="41", sha256="b" * 64)))
+    controller.tick(tmp_path)
+    assert json.loads((tmp_path / "controller-state.json").read_text())["status"] == "waiting_for_agent_inspection"
+    inspection.write_text(json.dumps(dict(reviewed=True, audit_job_id="42", sha256="c" * 64)))
+    controller.tick(tmp_path)
+    assert json.loads((tmp_path / "controller-state.json").read_text())["status"] == "waiting_for_agent_inspection"
+    inspection.write_text(json.dumps(dict(reviewed=True, audit_job_id="42", sha256="b" * 64)))
+    monkeypatch.setattr(controller, "allocation", lambda: dict(cpus=47, memory_mib=0, jobs=[]))
+    controller.tick(tmp_path)
+    assert json.loads((tmp_path / "controller-state.json").read_text())["status"] == "waiting_for_resources"

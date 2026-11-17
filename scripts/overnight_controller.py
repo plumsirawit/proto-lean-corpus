@@ -129,6 +129,8 @@ def tick(control):
             return
         steps = validate_plan(json.loads(plan_path.read_text()))
         index = state["index"]
+        if len(state["history"]) != index or index > len(steps):
+            raise ValueError("Completed history does not match planned index")
         for completed, planned in zip(state["history"], steps[:index]):
             if completed["step"] != planned:
                 raise ValueError("Completed step changed in plan")
@@ -140,6 +142,21 @@ def tick(control):
             )
             return
         step = steps[index]
+        if step["kind"] == "process" and index:
+            audited = state["history"][-1]
+            inspection_path = control / ("inspection-" + audited["job_id"] + ".json")
+            inspection = (
+                json.loads(inspection_path.read_text())
+                if inspection_path.is_file()
+                else {}
+            )
+            if not (
+                inspection.get("reviewed") is True
+                and inspection.get("audit_job_id") == audited["job_id"]
+                and inspection.get("sha256") == audited["receipt"]["sha256"]
+            ):
+                save("waiting_for_agent_inspection", audited["job_id"])
+                return
         digest = hashlib.sha256(json.dumps(step, sort_keys=True).encode()).hexdigest()
         active = state.get("active")
         if active:
