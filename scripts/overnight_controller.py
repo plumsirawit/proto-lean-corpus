@@ -129,6 +129,9 @@ def tick(control):
             return
         steps = validate_plan(json.loads(plan_path.read_text()))
         index = state["index"]
+        for completed, planned in zip(state["history"], steps[:index]):
+            if completed["step"] != planned:
+                raise ValueError("Completed step changed in plan")
         if index >= len(steps):
             save(
                 "prepared_steps_audited"
@@ -253,6 +256,14 @@ def main():
     parser.add_argument("--control", type=Path, required=True)
     parser.add_argument("--watch", type=int, help="seconds between bounded ticks")
     args = parser.parse_args()
+    daemon_lock = None
+    if args.watch:
+        daemon_lock = (args.control / "controller-daemon.lock").open("a")
+        fcntl.flock(daemon_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        atomic(
+            args.control / "controller-daemon.json",
+            {"pid": os.getpid(), "started_at": now()},
+        )
     while True:
         try:
             tick(args.control)

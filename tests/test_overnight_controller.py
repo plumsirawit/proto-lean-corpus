@@ -1,4 +1,4 @@
-"""Unattended submission must fail closed on caps, gates and uncertain replies."""
+"""The unattended submitter must fail closed on caps, gates and uncertain replies."""
 
 import importlib.util
 import json
@@ -98,3 +98,33 @@ def test_uncertain_submission_cannot_retry(tmp_path, monkeypatch):
     state = json.loads((tmp_path / "controller-state.json").read_text())
     assert state["status"] == "submission_needs_reconciliation"
     assert len(calls) == 1
+
+
+def test_next_size_requires_agent_inspection(tmp_path, monkeypatch):
+    first, audit, next_size = step(), step("audit"), step(size=100)
+    (tmp_path / "controller-plan.json").write_text(
+        json.dumps({"steps": [first, audit, next_size]})
+    )
+    state = {
+        "index": 2,
+        "history": [
+            {
+                "job_id": "41",
+                "step": first,
+                "receipt": {"archive": "/result.tar", "sha256": "b" * 64},
+            },
+            {
+                "job_id": "42",
+                "step": audit,
+                "receipt": {"archive": "/result.tar", "sha256": "b" * 64},
+            },
+        ],
+    }
+    (tmp_path / "controller-state.json").write_text(json.dumps(state))
+    monkeypatch.setattr(
+        controller, "allocation", lambda: pytest.fail("inspection must happen first")
+    )
+    controller.tick(tmp_path)
+    saved = json.loads((tmp_path / "controller-state.json").read_text())
+    assert saved["status"] == "waiting_for_agent_inspection"
+    assert saved["index"] == 2
