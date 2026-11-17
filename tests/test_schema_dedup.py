@@ -123,3 +123,63 @@ def test_provenance_coverage_and_attempt_location():
     data, _ = merge(tables([p], [a, b]))
     assert len(data["proofs"]) == 1
     assert len(data["proofs"][0]["source_refs"]) == 2
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_disk_merge_matches_existing_precedence_and_reports(tmp_path, reverse):
+    from lean_corpus.disk_merge import merge_groups, parquet_rows
+
+    a = problem(informal=None)
+    b = problem(source="s2", informal="B")
+    c = problem(informal="A")
+    data = tables([a, b, c], [proof(a), proof(b, source="s2"), proof(a, "by sorry")])
+    # Equal-reference precedence, null preference, multiple attempts, Unicode,
+    # duplicate provenance and timestamp types must retain existing semantics.
+    data["problems"][1]["informal_statement"] = "B ∀"
+    data["provenance"].append(dict(data["provenance"][0]))
+    if reverse:
+        data = {k: list(reversed(v)) for k, v in data.items()}
+    expected, expected_report = merge(data)
+    write_tables(tmp_path / "input", data, unique=False)
+    actual = {k: [] for k in SCHEMAS}
+    report = {"duplicate_groups": [], "metadata_conflicts": [],
+              "before": dict.fromkeys(SCHEMAS, 0), "after": dict.fromkeys(SCHEMAS, 0)}
+    for name, row, fragment in merge_groups(
+        parquet_rows(tmp_path / "input", batch_size=1), tmp_path / "merge.sqlite"
+    ):
+        actual[name].append(row)
+        for field in ("duplicate_groups", "metadata_conflicts"):
+            report[field].extend(fragment[field])
+        for field in ("before", "after"):
+            report[field][name] += fragment[field][name]
+    assert actual == expected
+    assert report == expected_report
+    validate(actual)
+
+
+def test_disk_merge_oversized_group_preserves_all_occurrences(tmp_path):
+    import sqlite3
+    from lean_corpus.disk_merge import merge_groups
+
+    p = problem()
+    database = tmp_path / "merge.sqlite"
+    with pytest.raises(ValueError, match="all occurrences retained"):
+        list(merge_groups((("problems", p) for _ in range(3)), database,
+                          max_group_bytes=1))
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM occurrences").fetchone()[0] == 3
+    with pytest.raises(FileExistsError):
+        list(merge_groups([], database))
+
+
+def test_disk_merge_empty_and_input_failure(tmp_path):
+    import sqlite3
+    from lean_corpus.disk_merge import merge_groups
+
+    assert list(merge_groups([], tmp_path / "empty.sqlite")) == []
+    database = tmp_path / "bad.sqlite"
+    with pytest.raises(ValueError, match="unknown table"):
+        list(merge_groups([("unexpected", {})], database))
+    # Failure closes the connection, and a later attempt cannot reuse the DB.
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
