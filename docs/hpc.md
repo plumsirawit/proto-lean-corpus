@@ -152,3 +152,11 @@ For targeted compatibility tests, `LEAN_CORPUS_TEST_TOOLCHAIN` overrides the cor
 test fixture's default Lean 4.19 toolchain. Supply an installed toolchain and run
 the relevant core/adapter tests; this does not install tools or rewrite source
 environment manifests.
+
+The independent full-export audit streams extraction diagnostics and verification
+results, storing result IDs and statuses in an exclusive job-local SQLite index.
+It compares canonical and exported Parquet batches, reconciles each statement and
+proof exactly once, and checks original-row coverage against the processing
+receipt. Duplicate, missing, or extra results stop the audit. The complete failure
+inventory is written incrementally; no full report or result dictionary is held
+in memory. Keep the audit work directory in job-local storage.

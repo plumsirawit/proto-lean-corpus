@@ -16,6 +16,7 @@ import tarfile
 import pyarrow.parquet as pq
 
 from lean_corpus.common import file_hash, write_json
+from lean_corpus.audit_stream import VerificationIndex, report_items
 
 stage, receipt_path, audit_work = map(Path, sys.argv[1:])
 receipt = json.loads(receipt_path.read_text())
@@ -88,86 +89,8 @@ def relpath(refs):
     )
 
 
-extraction = json.loads(extraction_path.read_text())
-seen = extraction["input_occurrences"]
-if seen != receipt["run_state"]["expected_input_rows"]:
-    raise ValueError(
-        "The normalized input count differed from the independent source count"
-    )
-
-
-def verification_results(path):
-    # The canonical writer emits attempts first and problems last. Decode only
-    # one result at a time and keep the fields needed to reconcile the export.
-    decoder = json.JSONDecoder()
-    block = 1024 * 1024
-    attempts, problems = {}, {}
-    with path.open(encoding="utf-8") as stream:
-        buffer = stream.read(block)
-        offset = 0
-
-        def take(value=None):
-            nonlocal buffer, offset
-            if offset >= block or len(buffer) - offset < len(value or "x"):
-                buffer = buffer[offset:] + stream.read(block)
-                offset = 0
-            if value is not None:
-                if buffer.startswith(value, offset):
-                    offset += len(value)
-                    return True
-                return False
-            while True:
-                try:
-                    item, end = decoder.raw_decode(buffer, offset)
-                except json.JSONDecodeError:
-                    more = stream.read(block)
-                    if not more:
-                        raise
-                    buffer = buffer[offset:] + more
-                    offset = 0
-                    continue
-                offset = end
-                return item
-
-        def expect(token):
-            if not take(token):
-                raise ValueError(
-                    f"Unexpected verification report structure near {token!r}"
-                )
-
-        def record(results, identifier, item):
-            if identifier in results:
-                raise ValueError(f"Duplicate verification result for {identifier}")
-            results[identifier] = (item["status"], item["reason"])
-
-        expect('{"attempts":[')
-        if not take("]"):
-            while True:
-                item = take()
-                record(attempts, item["proof_id"], item)
-                if take("]"):
-                    break
-                expect(",")
-        expect(',"limit":null,"policy":')
-        take()
-        expect(',"problems":{')
-        if not take("}"):
-            while True:
-                identifier = take()
-                expect(":")
-                record(problems, identifier, take())
-                if take("}"):
-                    break
-                expect(",")
-        expect("}")
-        if buffer[offset:].strip() or any(
-            chunk.strip() for chunk in iter(lambda: stream.read(block), "")
-        ):
-            raise ValueError("Unexpected data after verification results")
-    return attempts, problems
-
-
-proof_results, statement_results = verification_results(verification_path)
+index = VerificationIndex(audit_work / "verification-index.sqlite", verification_path)
+seen = None
 reasons = {"extraction": Counter(), "proofs": Counter(), "statements": Counter()}
 out = stage / f"failures-{source}-full-{job}.md"
 temporary = out.with_suffix(".tmp")
@@ -178,7 +101,13 @@ with temporary.open("w") as report:
         f"`{receipt['run_state']['code_revision']}`.\n\n"
         f"## Extraction\n\n"
     )
-    for item in extraction["reports"]:
+    for field, _, item in report_items(
+        extraction_path, arrays={"reports"}, required={"reports", "input_occurrences"}
+    ):
+        if field == "input_occurrences":
+            seen = item
+        if field != "reports":
+            continue
         reason = item["reason"]
         reasons["extraction"][reason] += 1
         report.write(
@@ -188,7 +117,7 @@ with temporary.open("w") as report:
     report.write("\n## Statements\n\n")
     for batch in batches(canonical["problems"], ["id", "target_name", "source_refs"]):
         for problem in batch.to_pylist():
-            status, detail = statement_results.pop(problem["id"])
+            status, detail = index.pop("problems", problem["id"])
             reason = f"{status}:{detail}"
             reasons["statements"][reason] += 1
             if status != "elaborated":
@@ -201,7 +130,7 @@ with temporary.open("w") as report:
     columns = ["id", "problem_id", "source_refs", "verification_status"]
     for batch in batches(canonical["proofs"], columns):
         for proof in batch.to_pylist():
-            status, detail = proof_results.pop(proof["id"])
+            status, detail = index.pop("attempts", proof["id"])
             if status != proof["verification_status"]:
                 raise ValueError(f"Proof status differs for {proof['id']}")
             reason = f"{status}:{detail}"
@@ -212,8 +141,9 @@ with temporary.open("w") as report:
                     f"`{inline(relpath(proof['source_refs']))}` — {inline(reason)}\n"
                 )
 
-if statement_results or proof_results:
-    raise ValueError("Verification results did not independently match canonical IDs")
+index.finish()
+if seen != receipt["run_state"]["expected_input_rows"]:
+    raise ValueError("The normalized input count differed from the independent source count")
 temporary.replace(out)
 write_json(
     stage / f"full-audit-{job}.json",
