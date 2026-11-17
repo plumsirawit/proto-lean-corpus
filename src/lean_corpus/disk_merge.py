@@ -12,11 +12,21 @@ import json
 from pathlib import Path
 import sqlite3
 
+import pyarrow as pa
 import pyarrow.parquet as pq
 
 from .common import canonical
 from .deduplicate import merge
 from .schema import SCHEMAS
+
+
+def _parquet_schema(schema):
+    # Parquet's compliant list encoding renames Arrow's `item` child to
+    # `element`. Compare against the exact serialized schema, retaining nested
+    # nullability, field names/types and metadata rather than ignoring metadata.
+    sink = pa.BufferOutputStream()
+    pq.write_table(pa.Table.from_batches([], schema=schema), sink)
+    return pq.ParquetFile(pa.BufferReader(sink.getvalue())).schema_arrow
 
 
 def parquet_rows(directory, batch_size=32):
@@ -25,7 +35,11 @@ def parquet_rows(directory, batch_size=32):
         raise ValueError("positive batch size required")
     for name, schema in SCHEMAS.items():
         source = pq.ParquetFile(Path(directory) / f"{name}.parquet")
-        if not source.schema_arrow.equals(schema, check_metadata=True):
+        actual = source.schema_arrow
+        if not (
+            actual.equals(schema, check_metadata=True)
+            or actual.equals(_parquet_schema(schema), check_metadata=True)
+        ):
             raise ValueError(f"unexpected {name} schema")
         for batch in source.iter_batches(batch_size=batch_size, use_threads=False):
             for row in batch.to_pylist():

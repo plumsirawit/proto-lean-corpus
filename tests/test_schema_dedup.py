@@ -268,3 +268,35 @@ def test_disk_validation_rejects_schema_and_iterator_failures(tmp_path):
     with pytest.raises(RuntimeError, match="incomplete input"):
         validate_occurrences(broken(), tmp_path / "broken.db")
     assert validate_occurrences(iter(()), tmp_path / "empty.db") == dict.fromkeys(SCHEMAS, 0)
+
+
+@pytest.mark.parametrize("fault", ["metadata", "child_nullable", "field_name",
+                                  "field_type", "top_nullable"])
+def test_disk_parquet_schema_retains_nested_contract(tmp_path, fault):
+    import pyarrow as pa
+    from lean_corpus.disk_merge import parquet_rows
+
+    data = tables([], [])
+    write_tables(tmp_path / "input", data)
+    schema = SCHEMAS["problems"]
+    if fault == "metadata":
+        schema = schema.with_metadata({b"lean_corpus_schema_version": b"wrong"})
+    elif fault == "top_nullable":
+        schema = schema.set(0, schema.field(0).with_nullable(True))
+    else:
+        ref = schema.field("source_refs").type.value_field
+        if fault == "child_nullable":
+            ref = ref.with_nullable(True)
+        else:
+            fields = list(ref.type)
+            if fault == "field_name":
+                fields[0] = fields[0].with_name("wrong_source_id")
+            else:
+                fields[0] = fields[0].with_type(pa.int64())
+            ref = ref.with_type(pa.struct(fields))
+        index = schema.get_field_index("source_refs")
+        schema = schema.set(index, schema.field(index).with_type(pa.list_(ref)))
+    pq.write_table(pa.Table.from_batches([], schema=schema),
+                   tmp_path / "input" / "problems.parquet")
+    with pytest.raises(ValueError, match="unexpected problems schema"):
+        list(parquet_rows(tmp_path / "input"))
