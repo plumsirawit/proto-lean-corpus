@@ -15,7 +15,7 @@ import tarfile
 
 import pyarrow.parquet as pq
 
-from lean_corpus.acquire import acquire
+from lean_corpus.acquire import acquire, inventory
 from lean_corpus.common import file_hash, write_json
 from lean_corpus.lean import inspect
 from lean_corpus.runtime import RuntimeGuard
@@ -84,8 +84,33 @@ def main():
     })
     project = Path(os.environ["LC_LOCAL_PROJECT"])
     expected_revision = "2f65ba7f1a9144b20c8e7358513548e317d26de1"
-    assert subprocess.check_output(["git", "-C", str(project), "rev-parse", "HEAD"], text=True).strip() == expected_revision
-    assert not subprocess.check_output(["git", "-C", str(project), "status", "--porcelain"], text=True).strip()
+    # Recovery archives intentionally omit the root .git. Compare every source
+    # file to the exact committed tree in the preserved read-only upstream clone;
+    # copying Git configs/credentials into the job is unnecessary.
+    upstream_clone = Path(os.environ["LC_UPSTREAM_CLONE"])
+    tree = subprocess.check_output([
+        "git", "-C", str(upstream_clone), "ls-tree", "-r", "-z", expected_revision,
+    ], timeout=60)
+    expected = {}
+    for item in tree.split(b"\0"):
+        if not item:
+            continue
+        metadata, name = item.split(b"\t", 1)
+        mode, kind, oid = metadata.decode().split()
+        assert kind == "blob" and mode in {"100644", "100755"}
+        expected[name.decode()] = oid
+    assert set(expected) == {e["path"] for e in inventory(project)}
+    for name, oid in expected.items():
+        path = project / name
+        blob = hashlib.sha1(f"blob {path.stat().st_size}\0".encode())
+        with path.open("rb") as stream:
+            while chunk := stream.read(1024 * 1024):
+                blob.update(chunk)
+        assert blob.hexdigest() == oid, name
+    write_json(workspace / "project-git-integrity.json", {
+        "revision": expected_revision, "git_tree": expected,
+        "all_archived_project_files_match_pinned_git_tree": True,
+    })
     for name in ("lean-toolchain", "lake-manifest.json", "lakefile.lean"):
         assert (project / name).read_bytes() == (evidence / ("goedel-mathlib-" + name)).read_bytes()
     os.environ["LC_LOCAL_WORKSPACE"] = str(workspace)
