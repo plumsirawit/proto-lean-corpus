@@ -82,8 +82,12 @@ def allocation():
 
 def validate_plan(plan):
     """Require fixed process/audit pairs in the authorized source and size order."""
+    lane = plan.get("source_lane")
+    if lane is not None and lane not in SOURCES:
+        raise ValueError("Unknown source lane")
+    sources = (lane,) if lane else SOURCES
     expected = [
-        (s, n, kind) for s in SOURCES for n in SIZES for kind in ("process", "audit")
+        (s, n, kind) for s in sources for n in SIZES for kind in ("process", "audit")
     ]
     steps = plan["steps"]
     if len(steps) > len(expected):
@@ -101,6 +105,8 @@ def validate_plan(plan):
             raise ValueError("Explicit quota reserves required")
         if step["kind"] == "audit" and not step.get("independent_audit"):
             raise ValueError("Independent audit required")
+        if "adopt_job_id" in step and not re.fullmatch(r"[0-9]+", step["adopt_job_id"]):
+            raise ValueError("Numeric adopted job ID required")
     return steps
 
 
@@ -127,7 +133,8 @@ def tick(control):
         if not plan_path.exists():
             save("waiting_for_prepared_plan")
             return
-        steps = validate_plan(json.loads(plan_path.read_text()))
+        plan = json.loads(plan_path.read_text())
+        steps = validate_plan(plan)
         index = state["index"]
         if len(state["history"]) != index or index > len(steps):
             raise ValueError("Completed history does not match planned index")
@@ -137,7 +144,7 @@ def tick(control):
         if index >= len(steps):
             save(
                 "prepared_steps_audited"
-                if index == 32
+                if index == (8 if plan.get("source_lane") else 32)
                 else "waiting_for_more_prepared_steps"
             )
             return
@@ -223,6 +230,18 @@ def tick(control):
             state["index"] += 1
             save("step_complete", job)
             return
+        if step.get("adopt_job_id"):
+            # Adopt only an explicitly reviewed historical or already queued job.
+            # Its accounting and checksummed receipt pass the ordinary gates on
+            # the next tick. No sbatch call or inferred job-name match is made.
+            state["active"] = {
+                "job_name": "adopted-" + step["adopt_job_id"],
+                "step_digest": digest,
+                "job_id": step["adopt_job_id"],
+                "adopted_at": now(),
+            }
+            save("job_adopted", step["adopt_job_id"])
+            return
         evidence = allocation()
         if (
             evidence["cpus"] + step["cpus"] > 47
@@ -270,10 +289,32 @@ def tick(control):
         save("job_submitted", result)
 
 
+def tick_lanes(control):
+    """Serialize all lanes and external submission helpers under the root lock."""
+    with (control / "controller.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        for source in SOURCES:
+            lane = control / "lanes" / source
+            plan_path = lane / "controller-plan.json"
+            if not plan_path.exists():
+                continue
+            plan = json.loads(plan_path.read_text())
+            if plan.get("source_lane") != source:
+                raise ValueError("Lane directory and source identity differ")
+            try:
+                tick(lane)
+            except Exception as error:
+                atomic(
+                    lane / "controller-error.json",
+                    {"updated_at": now(), "error": repr(error)},
+                )
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--control", type=Path, required=True)
     parser.add_argument("--watch", type=int, help="seconds between bounded ticks")
+    parser.add_argument("--all-lanes", action="store_true")
     args = parser.parse_args()
     daemon_lock = None
     if args.watch:
@@ -281,11 +322,19 @@ def main():
         fcntl.flock(daemon_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         atomic(
             args.control / "controller-daemon.json",
-            {"pid": os.getpid(), "started_at": now()},
+            {
+                "pid": os.getpid(),
+                "hostname": os.uname().nodename,
+                "started_at": now(),
+                "all_lanes": args.all_lanes,
+            },
         )
     while True:
         try:
-            tick(args.control)
+            if args.all_lanes:
+                tick_lanes(args.control)
+            else:
+                tick(args.control)
         except Exception as error:
             atomic(
                 args.control / "controller-error.json",

@@ -115,7 +115,10 @@ def test_reservations_follow_the_destination_filesystem(tmp_path, monkeypatch):
         (tmp_path, 16 * 1024**2, 20),
         (planned["stage"], 8 * 1024**3, planned["reserve_files"]),
     ]
-    assert json.loads((tmp_path / "controller-state.json").read_text())["active"]["job_id"] == "123"
+    assert (
+        json.loads((tmp_path / "controller-state.json").read_text())["active"]["job_id"]
+        == "123"
+    )
 
 
 def test_next_size_requires_agent_inspection(tmp_path, monkeypatch):
@@ -147,13 +150,107 @@ def test_next_size_requires_agent_inspection(tmp_path, monkeypatch):
     assert saved["status"] == "waiting_for_agent_inspection"
     assert saved["index"] == 2
     inspection = tmp_path / "inspection-42.json"
-    inspection.write_text(json.dumps(dict(reviewed=True, audit_job_id="41", sha256="b" * 64)))
+    inspection.write_text(
+        json.dumps(dict(reviewed=True, audit_job_id="41", sha256="b" * 64))
+    )
     controller.tick(tmp_path)
-    assert json.loads((tmp_path / "controller-state.json").read_text())["status"] == "waiting_for_agent_inspection"
-    inspection.write_text(json.dumps(dict(reviewed=True, audit_job_id="42", sha256="c" * 64)))
+    assert (
+        json.loads((tmp_path / "controller-state.json").read_text())["status"]
+        == "waiting_for_agent_inspection"
+    )
+    inspection.write_text(
+        json.dumps(dict(reviewed=True, audit_job_id="42", sha256="c" * 64))
+    )
     controller.tick(tmp_path)
-    assert json.loads((tmp_path / "controller-state.json").read_text())["status"] == "waiting_for_agent_inspection"
-    inspection.write_text(json.dumps(dict(reviewed=True, audit_job_id="42", sha256="b" * 64)))
-    monkeypatch.setattr(controller, "allocation", lambda: dict(cpus=47, memory_mib=0, jobs=[]))
+    assert (
+        json.loads((tmp_path / "controller-state.json").read_text())["status"]
+        == "waiting_for_agent_inspection"
+    )
+    inspection.write_text(
+        json.dumps(dict(reviewed=True, audit_job_id="42", sha256="b" * 64))
+    )
+    monkeypatch.setattr(
+        controller, "allocation", lambda: dict(cpus=47, memory_mib=0, jobs=[])
+    )
     controller.tick(tmp_path)
-    assert json.loads((tmp_path / "controller-state.json").read_text())["status"] == "waiting_for_resources"
+    assert (
+        json.loads((tmp_path / "controller-state.json").read_text())["status"]
+        == "waiting_for_resources"
+    )
+
+
+def test_independent_source_lane_still_requires_size_audit_order():
+    first, audit = step(), step("audit")
+    for item in (first, audit):
+        item["source"] = "nemotron_math_proofs_v1"
+    plan = dict(source_lane="nemotron_math_proofs_v1", steps=[first, audit])
+    assert controller.validate_plan(plan) == [first, audit]
+    with pytest.raises(ValueError, match="gates"):
+        controller.validate_plan({**plan, "steps": [audit, first]})
+    with pytest.raises(ValueError, match="Unknown source"):
+        controller.validate_plan({**plan, "source_lane": "unrelated"})
+
+
+def test_adopted_job_passes_accounting_and_receipt_gate_without_submission(
+    tmp_path, monkeypatch
+):
+    planned = step()
+    planned.update(adopt_job_id="123", receipt=str(tmp_path / "receipt.json"))
+    (tmp_path / "controller-plan.json").write_text(json.dumps({"steps": [planned]}))
+    monkeypatch.setattr(
+        controller, "allocation", lambda: pytest.fail("adoption must never submit")
+    )
+    controller.tick(tmp_path)
+    monkeypatch.setattr(
+        controller,
+        "command",
+        lambda args: "" if args[0] == "squeue" else "123|FAILED|1:0||",
+    )
+    controller.tick(tmp_path)
+    assert (
+        json.loads((tmp_path / "controller-state.json").read_text())["status"]
+        == "job_needs_repair"
+    )
+    monkeypatch.setattr(
+        controller,
+        "command",
+        lambda args: "" if args[0] == "squeue" else "123|COMPLETED|0:0||",
+    )
+    (tmp_path / "receipt.json").write_text(
+        json.dumps(dict(complete=True, archive="/result.tar", sha256="b" * 64))
+    )
+    controller.tick(tmp_path)
+    saved = json.loads((tmp_path / "controller-state.json").read_text())
+    assert saved["index"] == 1 and saved["history"][0]["job_id"] == "123"
+
+
+def test_lane_root_lock_excludes_external_submission_and_fault_isolation(
+    tmp_path, monkeypatch
+):
+    import fcntl
+
+    for source in controller.SOURCES[:2]:
+        lane = tmp_path / "lanes" / source
+        lane.mkdir(parents=True)
+        (lane / "controller-plan.json").write_text(
+            json.dumps(dict(source_lane=source, steps=[]))
+        )
+    visited = []
+
+    def fake_tick(lane):
+        with (tmp_path / "controller.lock").open("a") as competing:
+            with pytest.raises(BlockingIOError):
+                fcntl.flock(competing, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        visited.append(lane.name)
+        if len(visited) == 1:
+            raise TimeoutError("first source accounting unavailable")
+
+    monkeypatch.setattr(controller, "tick", fake_tick)
+    controller.tick_lanes(tmp_path)
+    assert visited == list(controller.SOURCES[:2])
+    assert (
+        "TimeoutError"
+        in (
+            tmp_path / "lanes" / controller.SOURCES[0] / "controller-error.json"
+        ).read_text()
+    )
