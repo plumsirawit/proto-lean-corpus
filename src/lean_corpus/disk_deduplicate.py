@@ -24,6 +24,8 @@ def deduplicate_spooled(work, spool_dir):
         for name, row, fragment in merge_groups(
             parquet_rows(work / "normalized"), spool_dir / "merge.sqlite"
         ):
+            if name == "provenance":
+                row = {**row, "acquired_at": row["acquired_at"].isoformat()}
             tables[name].append(row)
             for field in ("duplicate_groups", "metadata_conflicts"):
                 report[field].extend(fragment[field])
