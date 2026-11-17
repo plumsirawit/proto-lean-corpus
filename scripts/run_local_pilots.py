@@ -24,7 +24,15 @@ from lean_corpus.shutdown import install_shutdown_handler
 from lean_corpus.verify import verify
 from lean_corpus.worker import STATS, close_all
 
-SOURCES = ("goedel_pset_v1", "lean_workbook", "putnam_bench")
+SOURCES = (
+    "goedel_pset_v1",
+    "lean_workbook",
+    "putnam_bench",
+    "goedel_prover_v2_sft",
+    "nemotron_math_proofs_v1",
+    "mathlib4",
+    "tau_ceti",
+)
 OPERATIONAL_REASONS = {
     "unresolved_environment",
     "toolchain_unavailable",
@@ -46,10 +54,19 @@ def main():
     parser.add_argument("--source", choices=SOURCES, required=True)
     parser.add_argument("--size", type=int, choices=(10, 100, 1000), required=True)
     parser.add_argument("--selection", type=Path)
+    parser.add_argument(
+        "--source-occurrences",
+        type=int,
+        help="independently counted complete source size; records exhaustion",
+    )
     parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--extraction-workers", type=int, default=1)
     parser.add_argument("--timeout", type=int, default=120)
     args = parser.parse_args()
+    if args.source in SOURCES[3:] and args.selection is None:
+        parser.error("new sources require representative original-record selections")
+    if args.source_occurrences is not None and args.source_occurrences <= 0:
+        parser.error("source occurrences must be positive")
     if args.workers <= 0 or args.timeout <= 0:
         parser.error("workers and timeout must be positive")
     if args.extraction_workers < 1 or (
@@ -134,13 +151,19 @@ def main():
                 != seen
             ):
                 raise RuntimeError("parallel extraction cache did not cover the pilot")
-        if seen != args.size and not (
+        expected = (
+            min(args.size, args.source_occurrences)
+            if args.source_occurrences
+            else args.size
+        )
+        state["source_occurrences"] = args.source_occurrences
+        if seen != expected and not (
             args.source == "putnam_bench"
             and args.size == 1000
             and 0 < seen < args.size
             and not args.selection
         ):
-            raise RuntimeError(f"expected {args.size} selected occurrences, got {seen}")
+            raise RuntimeError(f"expected {expected} selected occurrences, got {seen}")
         state["visited_occurrences"] = seen
         state["source_exhausted_before_cap"] = seen < args.size
         before = {

@@ -13,7 +13,7 @@ umask 077
 : "${LC_SOURCE:?}" "${LC_PILOT_SIZE:?}" "${LC_CODE_REVISION:?}"
 : "${LC_PROJECT_ARCHIVE:?}" "${LC_TOOLCHAIN_ARCHIVE:?}" "${LC_CHECKSUMS:?}"
 : "${LC_INPUT_ARCHIVE:?}"
-case "$LC_SOURCE" in goedel_pset_v1|lean_workbook|putnam_bench) ;; *) exit 2 ;; esac
+case "$LC_SOURCE" in goedel_pset_v1|lean_workbook|putnam_bench|goedel_prover_v2_sft|nemotron_math_proofs_v1|mathlib4|tau_ceti) ;; *) exit 2 ;; esac
 case "$LC_PILOT_SIZE" in 10|100|1000) ;; *) exit 2 ;; esac
 [[ "$LC_CODE_REVISION" =~ ^[0-9a-f]{40}$ ]]
 python_bin="$LC_REPO/.venv/bin/python"
@@ -86,6 +86,9 @@ fi
 extra=()
 if [[ "$LC_SOURCE" != putnam_bench ]]; then
   extra+=(--selection "$workspace/selection-$LC_PILOT_SIZE.json")
+fi
+if [[ -n "${LC_SOURCE_OCCURRENCES:-}" ]]; then
+  extra+=(--source-occurrences "$LC_SOURCE_OCCURRENCES")
 fi
 srun --cpu-bind=cores --ntasks=1 --cpus-per-task="${SLURM_CPUS_PER_TASK:-2}" \
   "$python_bin" scripts/run_local_pilots.py --work-dir "$workspace/corpus" \

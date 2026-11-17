@@ -17,7 +17,7 @@ umask 077
 [[ "$LC_WORKSPACE_NAME" =~ ^[A-Za-z0-9_-][A-Za-z0-9._-]*$ ]]
 export LC_SOURCE="${LC_SOURCE:-numina_math_lean}"
 case "$LC_SOURCE" in
-  numina_math_lean|goedel_pset_v1|lean_workbook|putnam_bench) ;;
+  numina_math_lean|goedel_pset_v1|lean_workbook|putnam_bench|goedel_prover_v2_sft|nemotron_math_proofs_v1|mathlib4|tau_ceti) ;;
   *) exit 2 ;;
 esac
 python_bin="$LC_REPO/.venv/bin/python"
